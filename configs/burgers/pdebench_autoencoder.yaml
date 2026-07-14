@@ -1,11 +1,11 @@
 problem: burgers
 experiment:
-  name: burgers_ae_latent8
+  name: pdebench_burgers_ae_latent8
   seed: 42
   output_dir: artifacts
 data:
-  path: data/processed/burgers/burgers_dataset.h5
-  case_index: 1
+  path: data/processed/burgers/pdebench_burgers_nu0.01_subset.h5
+  case_index: 52
   normalize: true
 model:
   method: autoencoder
@@ -19,15 +19,16 @@ model:
 training:
   batch_size: 32
   learning_rate: 0.001
-  epochs: 600
+  epochs: 300
   patience: 50
   device: auto
   num_workers: 0
   checkpoint_interval: 25
   mixed_precision: false
+  use_torch: true
 evaluation:
   front_method: max_gradient
-  rollout_start_index: 18
+  rollout_start_index: 60
   error_threshold: 0.2
 plot:
   dpi: 300

@@ -152,13 +152,48 @@ def build_cases(config: dict) -> list[BurgersCase]:
                 initial_condition=item.get("initial_condition", config.get("initial_condition", "tanh_front")),
             )
         )
-    if not cases:
-        cases.append(
-            BurgersCase(
-                nu=float(config.get("viscosity", 0.01)),
-                initial_condition=config.get("initial_condition", "tanh_front"),
+    if cases:
+        return cases
+
+    if "case_grid" in config:
+        grid = config["case_grid"]
+        rng = np.random.default_rng(int(config.get("seed", 42)))
+
+        def uniform(name: str, default: list[float]) -> float:
+            low, high = grid.get(name, default)
+            return float(rng.uniform(float(low), float(high)))
+
+        smooth_ics = grid.get("smooth_initial_conditions", ["sinusoidal", "random_smooth"])
+        front_ics = grid.get("front_initial_conditions", ["tanh_front", "shock"])
+        for _ in range(int(grid.get("smooth_count", 0))):
+            cases.append(
+                BurgersCase(
+                    nu=uniform("smooth_nu_range", [0.012, 0.03]),
+                    amplitude=uniform("amplitude_range", [0.8, 1.2]),
+                    front_location=uniform("front_location_range", [0.15, 0.45]),
+                    front_width=uniform("smooth_width_range", [0.06, 0.12]),
+                    initial_condition=str(rng.choice(smooth_ics)),
+                )
             )
+        for _ in range(int(grid.get("front_count", 0))):
+            cases.append(
+                BurgersCase(
+                    nu=uniform("front_nu_range", [0.001, 0.004]),
+                    amplitude=uniform("amplitude_range", [0.8, 1.2]),
+                    front_location=uniform("front_location_range", [0.15, 0.45]),
+                    front_width=uniform("front_width_range", [0.015, 0.04]),
+                    initial_condition=str(rng.choice(front_ics)),
+                )
+            )
+        if cases:
+            return cases
+
+    cases.append(
+        BurgersCase(
+            nu=float(config.get("viscosity", 0.01)),
+            initial_condition=config.get("initial_condition", "tanh_front"),
         )
+    )
     return cases
 
 

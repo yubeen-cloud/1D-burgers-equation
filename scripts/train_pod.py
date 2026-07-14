@@ -1,4 +1,4 @@
-"""Train/evaluate POD for Burgers or cylinder data."""
+"""Train/evaluate POD for Burgers data."""
 
 from __future__ import annotations
 
@@ -38,10 +38,10 @@ def _burgers(config: dict) -> None:
     rank_table = rank_errors(train, all_snapshots, [int(r) for r in ranks], subtract_mean=bool(model_cfg.get("subtract_mean", True)))
     out_root = resolve_path(config["experiment"].get("output_dir", "artifacts"))
     exp_id = config["experiment"]["name"]
-    fig_dir = ensure_dir(out_root / "figures" / "burgers" / "pod" / exp_id)
-    metric_dir = ensure_dir(out_root / "metrics")
-    pred_dir = ensure_dir(out_root / "predictions")
-    report_dir = ensure_dir(out_root / "reports")
+    fig_dir = ensure_dir(out_root / "burgers" / "figures" / "pod" / exp_id)
+    metric_dir = ensure_dir(out_root / "burgers" / "metrics")
+    pred_dir = ensure_dir(out_root / "burgers" / "predictions")
+    report_dir = ensure_dir(out_root / "burgers" / "reports")
     import numpy as np
 
     np.savez(pred_dir / f"{exp_id}_predictions.npz", x=x, t=t, truth=all_snapshots, reconstruction=reconstruction)
@@ -95,8 +95,7 @@ def _burgers(config: dict) -> None:
 def main() -> None:
     config, _args = parse_config_args("Train POD")
     if config["problem"] != "burgers":
-        print("Cylinder POD placeholder: use synthetic data generation then extend field selection as needed.")
-        return
+        raise ValueError("This project now supports only the 1D Burgers equation.")
     _burgers(config)
 
 

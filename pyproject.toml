@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rom-fluid-benchmarks"
+name = "one-d-burgers-equation"
 version = "0.1.0"
-description = "Reduced-order modeling benchmarks for Burgers and cylinder wake flows"
+description = "Reduced-order modeling experiments for the 1D Burgers equation"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -22,7 +22,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "mypy"]
-vtk = ["meshio", "pyvista"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

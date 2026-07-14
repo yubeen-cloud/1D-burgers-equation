@@ -52,7 +52,7 @@ def main() -> None:
     write_json(out_path.with_suffix(".metadata.json"), metadata)
     save_yaml(config, out_path.with_suffix(".resolved.yaml"))
 
-    fig_dir = resolve_path(config["experiment"].get("output_dir", "artifacts")) / "figures" / "burgers" / "data" / config["experiment"]["name"]
+    fig_dir = resolve_path(config["experiment"].get("output_dir", "artifacts")) / "burgers" / "figures" / "data" / config["experiment"]["name"]
     plot_spacetime(arrays["x"], arrays["t"], arrays["u"][0], "Burgers generated field", fig_dir / "burgers_spacetime_true")
     print(json.dumps({"path": str(out_path), "u_shape": list(arrays["u"].shape), "stats": stats}, indent=2))
 

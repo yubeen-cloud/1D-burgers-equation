@@ -1,0 +1,34 @@
+problem: burgers
+experiment:
+  name: burgers_dataset_30cases
+  seed: 42
+  output_dir: artifacts
+data:
+  path: data/processed/burgers/burgers_dataset.h5
+  regime: shock
+  normalize: true
+solver:
+  seed: 42
+  nx: 128
+  length: 1.0
+  t_start: 0.0
+  t_end: 1.00
+  snapshot_dt: 0.01
+  cfl: 0.35
+  boundary_condition: periodic
+  initial_condition: tanh_front
+  case_grid:
+    smooth_count: 10
+    front_count: 20
+    smooth_initial_conditions: [sinusoidal, random_smooth, gaussian]
+    front_initial_conditions: [tanh_front, shock]
+    smooth_nu_range: [0.012, 0.030]
+    front_nu_range: [0.0010, 0.0040]
+    amplitude_range: [0.80, 1.20]
+    front_location_range: [0.15, 0.45]
+    smooth_width_range: [0.060, 0.120]
+    front_width_range: [0.015, 0.040]
+plot:
+  dpi: 300
+  save_pdf: true
+  save_png: true

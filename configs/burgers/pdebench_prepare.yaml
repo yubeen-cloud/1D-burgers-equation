@@ -1,0 +1,20 @@
+problem: burgers
+experiment:
+  name: pdebench_burgers_nu001_subset64
+  seed: 42
+  output_dir: artifacts
+source:
+  nu: "0.01"
+  url: https://darus.uni-stuttgart.de/api/access/datafile/281363
+  path: data/external/pdebench/1D_Burgers_Sols_Nu0.01.hdf5
+  download: false
+data:
+  path: data/processed/burgers/pdebench_burgers_nu0.01_subset.h5
+subset:
+  case_offset: 0
+  n_cases: 64
+  time_stride: 2
+  space_stride: 8
+plot:
+  dpi: 300
+  save_pdf: true

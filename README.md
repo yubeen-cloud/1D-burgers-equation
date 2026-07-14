@@ -1,17 +1,29 @@
-# ROM Fluid Benchmarks
+# 1D Burgers Equation ROM
 
-Reduced-Order Modeling benchmark code for:
+Reduced-Order Modeling experiments for the 1D viscous Burgers equation.
 
-1. 1D viscous Burgers equation
-2. 2D cylinder wake
+The project compares POD, DMD, and Conv1D Autoencoder approaches on Burgers data, with emphasis on observing how each method behaves around moving fronts and shock-like structures. The goal is comparison and interpretation, not ranking methods.
 
-The project compares POD, DMD, and Autoencoder ROMs with emphasis on failure modes:
+## Main Questions
 
-- POD difficulty with moving fronts and shock-like structures
-- DMD rollout error accumulation
-- Autoencoder nonlinear latent representation and latent dynamics failure
-- Cylinder wake phase drift in long-horizon prediction
-- Reynolds number generalization when multi-Re data are available
+- How does POD reconstruction behave when a moving front is represented by a finite linear basis?
+- How does DMD rollout error accumulate after the training time window?
+- How does a Conv1D Autoencoder represent the field in a nonlinear latent space?
+- How do reconstruction error, rollout error, front-local error, and gradient error tell different stories?
+- How do smooth-like and shock-like cases differ within the same PDEBench dataset?
+
+## Project Layout
+
+```text
+configs/burgers/          YAML experiment configs
+data/external/pdebench/   Public PDEBench source files
+data/processed/burgers/   Processed Burgers HDF5 datasets
+artifacts/burgers/        Figures, metrics, predictions, reports, checkpoints
+scripts/                  CLI scripts for data, training, evaluation, review PDFs
+src/rom_bench/            Reusable Burgers ROM modules
+tests/                    Pytest smoke tests
+notebooks/                Optional Burgers exploration notebook
+```
 
 ## Installation
 
@@ -45,75 +57,127 @@ Development install:
 pip install -e ".[dev]"
 ```
 
-## Burgers Workflow
+## Public PDEBench Burgers Data
 
-Generate data:
+The public-data workflow uses:
+
+```text
+data/external/pdebench/1D_Burgers_Sols_Nu0.01.hdf5
+```
+
+and converts a reproducible subset to:
+
+```text
+data/processed/burgers/pdebench_burgers_nu0.01_subset.h5
+```
+
+Prepare the processed dataset:
 
 ```bash
-python scripts/generate_burgers.py --config configs/burgers_generate.yaml
+python scripts/prepare_pdebench_burgers.py --config configs/burgers/pdebench_prepare.yaml
 ```
+
+The processed subset currently stores:
+
+- `x`
+- `t`
+- `u`
+- `parameters/nu`
+- `split/train_indices`
+- `split/val_indices`
+- `split/test_indices`
+- metadata describing the source file, subset rule, package versions, and config path
+
+## Core Experiments
 
 Run POD:
 
 ```bash
-python scripts/train_pod.py --config configs/burgers_pod.yaml
+python scripts/train_pod.py --config configs/burgers/pdebench_pod.yaml
 ```
 
 Run DMD:
 
 ```bash
-python scripts/train_dmd.py --config configs/burgers_dmd.yaml
+python scripts/train_dmd.py --config configs/burgers/pdebench_dmd.yaml
 ```
 
-Run Autoencoder:
+Run Conv1D Autoencoder:
 
 ```bash
-python scripts/train_autoencoder.py --config configs/burgers_autoencoder.yaml
+python scripts/train_autoencoder.py --config configs/burgers/pdebench_autoencoder.yaml
 ```
 
-Compare models:
+Compare saved metrics:
 
 ```bash
 python scripts/compare_models.py --problem burgers --results-dir artifacts
 ```
 
-Full Burgers pipeline:
+Generate the detailed review PDF:
 
 ```bash
-python scripts/run_all.py --problem burgers --methods pod dmd autoencoder
+python scripts/create_burgers_logic_review.py
 ```
 
-`run_all.py` reuses cached outputs unless `--force` is passed.
+## Smooth/Shock And Dimension Sweep Comparison
 
-## Cylinder Workflow
-
-Phase 2 currently includes a small synthetic wake dataset and clear interfaces for external data.
-
-Generate synthetic cylinder data:
+To compare smooth-like and shock-like cases within the same PDEBench subset, run:
 
 ```bash
-python scripts/prepare_cylinder_data.py --config configs/cylinder_data.yaml
+python scripts/analyze_burgers_failure_modes.py
 ```
 
-Run placeholders for method scripts:
+This creates:
 
-```bash
-python scripts/train_pod.py --config configs/cylinder_pod.yaml
-python scripts/train_dmd.py --config configs/cylinder_dmd.yaml
-python scripts/train_autoencoder.py --config configs/cylinder_autoencoder.yaml
+```text
+artifacts/burgers/metrics/pdebench_failure_mode_sweep_metrics.csv
+artifacts/burgers/metrics/pdebench_failure_mode_summary.json
+artifacts/burgers/figures/failure_modes/pdebench_smooth_shock_failure_modes/
 ```
 
-External cylinder datasets should be converted to the documented HDF5 layout:
+The comparison includes:
 
-- `x`, `y`, `t`
-- `velocity/u`, `velocity/v`
-- `pressure`
-- `vorticity`
-- `coefficients/cl`, `coefficients/cd` when available
-- `parameters/reynolds_number`, `parameters/u_inf`, `parameters/diameter`
-- `split/train_indices`, `split/val_indices`, `split/test_indices`
+- smooth-like and shock-like case selection by mean max `|du/dx|`
+- front-local overlay figures
+- POD rank sweep
+- AE latent-dimension sweep
+- a controlled comparison where POD and AE use the same temporal training snapshots
 
-OpenFOAM outputs should first be converted with `foamToVTK` or `postProcess`, then interpolated to a common grid. VTK/VTU loading is intended as an optional dependency path using `meshio` or `pyvista`.
+For smooth-like cases, front MAE is reported as `N/A` in the review table because a sharp front is not a meaningful tracked object there.
+
+## Metrics
+
+Implemented metrics include:
+
+- MSE, RMSE, MAE
+- absolute and relative L2 error
+- normalized RMSE
+- maximum pointwise error
+- spatial gradient error
+- rollout error over time
+- threshold crossing time
+- front position error for shock-like cases
+- front speed error when applicable
+
+## Outputs
+
+Most generated outputs are under:
+
+```text
+artifacts/burgers/
+├── checkpoints/
+├── figures/
+├── metrics/
+├── predictions/
+└── reports/
+```
+
+Important review artifact:
+
+```text
+artifacts/burgers/reports/burgers_logic_review.pdf
+```
 
 ## Config Overrides
 
@@ -121,107 +185,40 @@ Configs are YAML files. Simple key overrides are supported:
 
 ```bash
 python scripts/train_autoencoder.py \
-  --config configs/burgers_autoencoder.yaml \
-  model.latent_dim=4 \
-  training.epochs=200
+  --config configs/burgers/pdebench_autoencoder.yaml \
+  model.latent_dim=16 \
+  training.epochs=300
 ```
 
-## Output Layout
+## Reproducibility
 
-Artifacts are written under:
+The project stores resolved configs, metrics, predictions, figures, and metadata where possible. HDF5 metadata records the source dataset, subset rule, environment information, and config path.
 
-```text
-artifacts/
-├── checkpoints/
-├── figures/
-├── metrics/
-├── predictions/
-├── logs/
-└── reports/
-```
-
-Each experiment saves:
-
-- resolved config
-- metrics JSON and CSV
-- runtime JSON
-- predictions NPZ
-- report Markdown
-- PNG and PDF figures
-
-## Metrics
-
-Burgers metrics include:
-
-- MSE, RMSE, MAE
-- absolute and relative L2
-- normalized RMSE
-- maximum pointwise error
-- spatial gradient error
-- rollout error over time
-- threshold crossing time
-- front position error
-- front speed error
-
-Cylinder-oriented modules include:
-
-- field relative L2
-- FFT peak frequency
-- Strouhal number
-- coefficient signal metrics when Cl/Cd are available
-- phase drift proxy by cross-correlation
-
-## Git And Reproducibility
-
-Recommended branches:
-
-- `main`
-- `develop`
-- `feature/burgers-solver`
-- `feature/pod`
-- `feature/dmd`
-- `feature/autoencoder`
-- `feature/cylinder-data`
-- `feature/evaluation`
-
-Track in Git:
+Recommended Git tracking:
 
 - source code
 - configs
 - tests
 - README
-- small metadata examples
+- small metadata files
 
-Do not track by default:
+Usually exclude:
 
-- HDF5 processed datasets
+- large HDF5 datasets
 - checkpoints
+- generated predictions
 - generated figures
-- prediction arrays
-- large logs
+- generated logs
 
-Use Git LFS for datasets or checkpoints that must be versioned.
-
-Every HDF5 dataset stores environment information, config path, and git information when `git` is available.
-
-Suggested initial commit order:
-
-1. project skeleton and packaging
-2. Burgers solver and data I/O
-3. POD and DMD
-4. Autoencoder
-5. metrics and visualization
-6. tests and README
-7. cylinder synthetic data scaffold
+Use Git LFS if large public-data subsets or checkpoints must be versioned.
 
 ## Known Limitations
 
-- Linear POD may need many modes to represent moving structures.
-- Standard DMD struggles with nonlinear transients and moving shocks in long rollout.
-- Good Autoencoder reconstruction does not imply accurate latent dynamics.
-- Cylinder force coefficients cannot be accurately reconstructed from fields without wall pressure and shear information.
-- Reynolds number generalization needs sufficient parameter coverage.
-- Phase 2 includes synthetic cylinder data and interfaces; robust OpenFOAM/VTK ingestion is an extension point.
+- Linear POD may need many modes to represent moving fronts.
+- Standard DMD uses a linear time-advance approximation and can accumulate rollout error for nonlinear Burgers dynamics.
+- Autoencoder reconstruction quality does not automatically imply accurate latent dynamics.
+- Front tracking is meaningful mainly for shock-like cases with a clear dominant gradient.
+- Downsampling from the original PDEBench resolution can weaken measured front gradients.
 
 ## Tests
 
@@ -229,4 +226,4 @@ Suggested initial commit order:
 pytest -q
 ```
 
-The current smoke tests cover Burgers solver consistency, POD, DMD, metrics, and HDF5 I/O.
+The current tests cover Burgers solver consistency, POD, DMD, field metrics, front-distance logic, FFT peak detection, and HDF5 I/O.

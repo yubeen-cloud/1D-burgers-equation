@@ -5,7 +5,6 @@ import numpy as np
 from rom_bench.evaluation.field_metrics import relative_l2
 from rom_bench.evaluation.frequency import fft_peak_frequency
 from rom_bench.evaluation.front_tracking import periodic_distance
-from rom_bench.evaluation.phase_error import cross_correlation_lag
 
 
 def test_same_field_error_zero() -> None:
@@ -23,10 +22,3 @@ def test_fft_peak_frequency() -> None:
     y = np.sin(2 * np.pi * 3.0 * t)
     assert abs(fft_peak_frequency(t, y) - 3.0) < 0.05
 
-
-def test_cross_correlation_lag() -> None:
-    dt = 0.1
-    t = np.arange(100) * dt
-    a = np.sin(t)
-    b = np.roll(a, 2)
-    assert abs(cross_correlation_lag(a, b, dt) - 0.2) < 0.11

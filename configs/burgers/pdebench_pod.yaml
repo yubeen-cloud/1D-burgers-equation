@@ -1,0 +1,22 @@
+problem: burgers
+experiment:
+  name: pdebench_burgers_pod_rank8
+  seed: 42
+  output_dir: artifacts
+data:
+  path: data/processed/burgers/pdebench_burgers_nu0.01_subset.h5
+  case_index: 52
+model:
+  method: pod
+  rank: 8
+  subtract_mean: true
+  energy_threshold: 0.999
+evaluation:
+  front_method: max_gradient
+  rollout_start_index: 60
+  error_threshold: 0.2
+comparison:
+  ranks: [2, 4, 8, 16, 32, 64]
+plot:
+  dpi: 300
+  save_pdf: true

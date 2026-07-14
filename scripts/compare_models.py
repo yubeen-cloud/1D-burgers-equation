@@ -21,6 +21,7 @@ def _load_rows(metrics_dir: Path, problem: str) -> list[dict[str, object]]:
     for path in metrics_dir.glob("*_metrics.json"):
         data = json.loads(path.read_text(encoding="utf-8"))
         if data.get("problem") == problem:
+            data.setdefault("experiment_name", path.name.removesuffix("_metrics.json"))
             rows.append(data)
     return rows
 
@@ -46,22 +47,22 @@ def _plot_metric(rows: list[dict[str, object]], metric: str, path: Path) -> None
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare ROM model metrics")
-    parser.add_argument("--problem", required=True, choices=["burgers", "cylinder"])
+    parser.add_argument("--problem", default="burgers", choices=["burgers"])
     parser.add_argument("--results-dir", default="artifacts")
     args = parser.parse_args()
 
     root = resolve_path(args.results_dir)
-    metric_dir = root / "metrics"
+    metric_dir = root / args.problem / "metrics"
     rows = _load_rows(metric_dir, args.problem)
     if not rows:
         print(f"No metrics found for {args.problem} in {metric_dir}")
         return
     out_csv = metric_dir / f"{args.problem}_model_comparison.csv"
     _write_csv(out_csv, rows)
-    fig_dir = ensure_dir(root / "figures" / args.problem / "comparison")
+    fig_dir = ensure_dir(root / args.problem / "figures" / "comparison")
     for metric in ["reconstruction_relative_l2", "rollout_relative_l2", "final_rollout_error", "front_position_mae"]:
         _plot_metric(rows, metric, fig_dir / f"{metric}_comparison")
-    report = root / "reports" / f"{args.problem}_comparison.md"
+    report = root / args.problem / "reports" / f"{args.problem}_comparison.md"
     write_markdown_report(
         report,
         f"{args.problem.title()} Model Comparison",

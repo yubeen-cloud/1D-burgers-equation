@@ -1,4 +1,4 @@
-.PHONY: install dev test lint burgers cylinder
+.PHONY: install dev test lint burgers
 
 install:
 	pip install -e .
@@ -15,6 +15,3 @@ lint:
 
 burgers:
 	python scripts/run_all.py --problem burgers --methods pod dmd autoencoder
-
-cylinder:
-	python scripts/run_all.py --problem cylinder --methods pod dmd autoencoder

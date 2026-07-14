@@ -26,8 +26,7 @@ def main() -> None:
     start = time.perf_counter()
     config, _args = parse_config_args("Train DMD")
     if config["problem"] != "burgers":
-        print("Cylinder DMD placeholder: implemented core DMD model, extend script for field choice.")
-        return
+        raise ValueError("This project now supports only the 1D Burgers equation.")
     seed_everything(int(config["experiment"].get("seed", 42)))
     arrays, _metadata = read_h5(config["data"]["path"])
     case_index = int(config["data"].get("case_index", 0))
@@ -46,10 +45,10 @@ def main() -> None:
     front_err = front_position_error(x, u, pred, method=config["evaluation"].get("front_method", "max_gradient"))
     out_root = resolve_path(config["experiment"].get("output_dir", "artifacts"))
     exp_id = config["experiment"]["name"]
-    fig_dir = ensure_dir(out_root / "figures" / "burgers" / "dmd" / exp_id)
-    metric_dir = ensure_dir(out_root / "metrics")
-    pred_dir = ensure_dir(out_root / "predictions")
-    report_dir = ensure_dir(out_root / "reports")
+    fig_dir = ensure_dir(out_root / "burgers" / "figures" / "dmd" / exp_id)
+    metric_dir = ensure_dir(out_root / "burgers" / "metrics")
+    pred_dir = ensure_dir(out_root / "burgers" / "predictions")
+    report_dir = ensure_dir(out_root / "burgers" / "reports")
     np.savez(pred_dir / f"{exp_id}_predictions.npz", x=x, t=t, truth=u, prediction=pred, eigenvalues=model.eigenvalues)
     plot_field_comparison(x, u[-1], pred[-1], "DMD final rollout", fig_dir / "dmd_final_rollout")
     plot_error_curve(t, err, "DMD rollout error", fig_dir / "rollout_error_vs_time")
