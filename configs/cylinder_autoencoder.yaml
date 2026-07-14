@@ -1,0 +1,27 @@
+problem: cylinder
+experiment:
+  name: cylinder_ae_latent16
+  seed: 42
+  output_dir: artifacts
+data:
+  path: data/processed/cylinder/cylinder_synthetic.h5
+  input_channels: [vorticity]
+model:
+  method: autoencoder
+  latent_dim: 16
+  hidden_channels: 16
+training:
+  batch_size: 8
+  learning_rate: 0.001
+  epochs: 100
+  patience: 15
+  device: auto
+  num_workers: 0
+  checkpoint_interval: 10
+  mixed_precision: false
+evaluation:
+  masked_loss: true
+  frequency_start_index: 10
+plot:
+  dpi: 300
+  save_pdf: true

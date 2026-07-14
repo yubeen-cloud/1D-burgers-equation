@@ -1,0 +1,19 @@
+problem: cylinder
+experiment:
+  name: cylinder_pod_rank16
+  seed: 42
+  output_dir: artifacts
+data:
+  path: data/processed/cylinder/cylinder_synthetic.h5
+  field: vorticity
+model:
+  method: pod
+  rank: 16
+  subtract_mean: true
+  energy_threshold: 0.999
+evaluation:
+  phase_method: cross_correlation
+  frequency_start_index: 10
+plot:
+  dpi: 300
+  save_pdf: true
