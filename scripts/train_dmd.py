@@ -12,7 +12,7 @@ import numpy as np
 
 from rom_bench.config import parse_config_args, save_yaml
 from rom_bench.data.io import read_h5, write_json
-from rom_bench.evaluation.field_metrics import error_over_time, first_threshold_time, relative_l2
+from rom_bench.evaluation.field_metrics import error_over_time, first_threshold_time
 from rom_bench.evaluation.front_tracking import front_position_error
 from rom_bench.evaluation.reports import write_markdown_report
 from rom_bench.models.dmd import DMDModel
@@ -43,12 +43,12 @@ def main() -> None:
     pred = model.predict(len(t))
     err = error_over_time(u, pred)
     front_err = front_position_error(x, u, pred, method=config["evaluation"].get("front_method", "max_gradient"))
-    out_root = resolve_path(config["experiment"].get("output_dir", "artifacts"))
+    out_root = resolve_path(config["experiment"].get("output_dir", "."))
     exp_id = config["experiment"]["name"]
-    fig_dir = ensure_dir(out_root / "burgers" / "figures" / "dmd" / exp_id)
-    metric_dir = ensure_dir(out_root / "burgers" / "metrics")
-    pred_dir = ensure_dir(out_root / "burgers" / "predictions")
-    report_dir = ensure_dir(out_root / "burgers" / "reports")
+    fig_dir = ensure_dir(out_root / "figures" / "dmd" / exp_id)
+    metric_dir = ensure_dir(out_root / "metrics")
+    pred_dir = ensure_dir(out_root / "predictions")
+    report_dir = ensure_dir(out_root / "reports")
     np.savez(pred_dir / f"{exp_id}_predictions.npz", x=x, t=t, truth=u, prediction=pred, eigenvalues=model.eigenvalues)
     plot_field_comparison(x, u[-1], pred[-1], "DMD final rollout", fig_dir / "dmd_final_rollout")
     plot_error_curve(t, err, "DMD rollout error", fig_dir / "rollout_error_vs_time")

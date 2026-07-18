@@ -163,13 +163,13 @@ def main() -> None:
     train_end = int(config["evaluation"].get("rollout_start_index", int(0.6 * len(t))))
     model_cfg = config["model"]
     training_cfg = config["training"]
-    out_root = resolve_path(config["experiment"].get("output_dir", "artifacts"))
+    out_root = resolve_path(config["experiment"].get("output_dir", "."))
     exp_id = config["experiment"]["name"]
-    fig_dir = ensure_dir(out_root / "burgers" / "figures" / "autoencoder" / exp_id)
-    metric_dir = ensure_dir(out_root / "burgers" / "metrics")
-    pred_dir = ensure_dir(out_root / "burgers" / "predictions")
-    ckpt_dir = ensure_dir(out_root / "burgers" / "checkpoints" / "autoencoder" / exp_id)
-    report_dir = ensure_dir(out_root / "burgers" / "reports")
+    fig_dir = ensure_dir(out_root / "figures" / "autoencoder" / exp_id)
+    metric_dir = ensure_dir(out_root / "metrics")
+    pred_dir = ensure_dir(out_root / "predictions")
+    ckpt_dir = ensure_dir(out_root / "checkpoints" / "autoencoder" / exp_id)
+    report_dir = ensure_dir(out_root / "reports")
     if _torch_available() and bool(training_cfg.get("use_torch", True)):
         trained = _train_torch_conv1d(u[:train_end], u, model_cfg, training_cfg, ckpt_dir)
         reconstruction = trained["reconstruction"]

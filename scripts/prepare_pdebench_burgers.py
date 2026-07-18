@@ -58,7 +58,7 @@ def main() -> None:
     write_json(out_path.with_suffix(".metadata.json"), metadata)
     save_yaml(config, out_path.with_suffix(".resolved.yaml"))
 
-    fig_dir = resolve_path(config["experiment"].get("output_dir", "artifacts")) / "burgers" / "figures" / "data" / config["experiment"]["name"]
+    fig_dir = resolve_path(config["experiment"].get("output_dir", ".")) / "figures" / "data" / config["experiment"]["name"]
     plot_spacetime(arrays["x"], arrays["t"], arrays["u"][0], "PDEBench Burgers subset sample", fig_dir / "pdebench_burgers_sample")
     print(json.dumps({"path": str(out_path), "u_shape": list(arrays["u"].shape), "source": str(raw_path)}, indent=2))
 

@@ -10,7 +10,7 @@ import _bootstrap  # noqa: F401
 
 from rom_bench.config import parse_config_args, save_yaml
 from rom_bench.data.io import read_h5, write_json
-from rom_bench.evaluation.field_metrics import error_over_time, first_threshold_time, relative_l2
+from rom_bench.evaluation.field_metrics import error_over_time, relative_l2
 from rom_bench.evaluation.front_tracking import front_position_error, front_speed_error
 from rom_bench.evaluation.reports import write_markdown_report
 from rom_bench.models.pod import PODModel, rank_errors
@@ -36,12 +36,12 @@ def _burgers(config: dict) -> None:
     front_err = front_position_error(x, all_snapshots, reconstruction, method=config["evaluation"].get("front_method", "max_gradient"))
     ranks = config.get("comparison", {}).get("ranks", [rank])
     rank_table = rank_errors(train, all_snapshots, [int(r) for r in ranks], subtract_mean=bool(model_cfg.get("subtract_mean", True)))
-    out_root = resolve_path(config["experiment"].get("output_dir", "artifacts"))
+    out_root = resolve_path(config["experiment"].get("output_dir", "."))
     exp_id = config["experiment"]["name"]
-    fig_dir = ensure_dir(out_root / "burgers" / "figures" / "pod" / exp_id)
-    metric_dir = ensure_dir(out_root / "burgers" / "metrics")
-    pred_dir = ensure_dir(out_root / "burgers" / "predictions")
-    report_dir = ensure_dir(out_root / "burgers" / "reports")
+    fig_dir = ensure_dir(out_root / "figures" / "pod" / exp_id)
+    metric_dir = ensure_dir(out_root / "metrics")
+    pred_dir = ensure_dir(out_root / "predictions")
+    report_dir = ensure_dir(out_root / "reports")
     import numpy as np
 
     np.savez(pred_dir / f"{exp_id}_predictions.npz", x=x, t=t, truth=all_snapshots, reconstruction=reconstruction)

@@ -2,7 +2,7 @@ problem: burgers
 experiment:
   name: pdebench_burgers_nu001_subset64
   seed: 42
-  output_dir: artifacts
+  output_dir: .
 source:
   nu: "0.01"
   url: https://darus.uni-stuttgart.de/api/access/datafile/281363

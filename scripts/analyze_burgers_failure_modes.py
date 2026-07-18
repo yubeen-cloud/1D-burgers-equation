@@ -297,7 +297,7 @@ def main() -> None:
     t = arrays["t"]
     u = arrays["u"]
     test_indices = arrays["split/test_indices"]
-    out_root = resolve_path("artifacts/burgers")
+    out_root = resolve_path(".")
     fig_dir = ensure_dir(out_root / "figures" / "failure_modes" / EXP_ID)
     metric_dir = ensure_dir(out_root / "metrics")
     pred_dir = ensure_dir(out_root / "predictions" / "failure_modes" / EXP_ID)

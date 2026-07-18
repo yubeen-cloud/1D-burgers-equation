@@ -1,0 +1,14 @@
+steps:
+  - script: scripts/prepare_pdebench_burgers.py
+    config: configs/burgers/pdebench_prepare.yaml
+  - script: scripts/train_pod.py
+    config: configs/burgers/pdebench_pod.yaml
+  - script: scripts/train_dmd.py
+    config: configs/burgers/pdebench_dmd.yaml
+  - script: scripts/train_autoencoder.py
+    config: configs/burgers/pdebench_autoencoder.yaml
+  - script: scripts/compare_models.py
+    args: [--problem, burgers, --results-dir, .]
+  - script: scripts/analyze_burgers_failure_modes.py
+  - script: scripts/create_burgers_logic_review.py
+

@@ -2,7 +2,7 @@ problem: burgers
 experiment:
   name: pdebench_burgers_dmd_rank8
   seed: 42
-  output_dir: artifacts
+  output_dir: .
 data:
   path: data/processed/burgers/pdebench_burgers_nu0.01_subset.h5
   case_index: 52

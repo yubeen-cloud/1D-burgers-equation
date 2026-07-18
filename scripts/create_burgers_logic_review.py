@@ -344,13 +344,12 @@ def compute_logic_audit() -> dict[str, Any]:
     """Compute concrete audit values for the public Burgers review."""
     processed_path = resolve_path("data/processed/burgers/pdebench_burgers_nu0.01_subset.h5")
     source_path = resolve_path("data/external/pdebench/1D_Burgers_Sols_Nu0.01.hdf5")
-    ae_pred_path = resolve_path("artifacts/burgers/predictions/pdebench_burgers_ae_latent8_predictions.npz")
+    ae_pred_path = resolve_path("predictions/pdebench_burgers_ae_latent8_predictions.npz")
     dmd_cfg = yaml.safe_load(resolve_path("configs/burgers/pdebench_dmd.yaml").read_text(encoding="utf-8"))
     ae_cfg = yaml.safe_load(resolve_path("configs/burgers/pdebench_autoencoder.yaml").read_text(encoding="utf-8"))
 
     with h5py.File(processed_path, "r") as h5:
         x = np.asarray(h5["x"], dtype=float)
-        t = np.asarray(h5["t"], dtype=float)
         u = np.asarray(h5["u"], dtype=float)
         train_indices = np.asarray(h5["split/train_indices"], dtype=int)
         val_indices = np.asarray(h5["split/val_indices"], dtype=int)
@@ -414,7 +413,7 @@ def compute_logic_audit() -> dict[str, Any]:
             row["mean_gradient_ratio_vs_1024"] = float(row["mean_max_abs_gradient"] / full_mean)
             row["max_gradient_ratio_vs_1024"] = float(row["max_abs_gradient"] / full_max)
 
-        metric_dir = resolve_path("artifacts/burgers/metrics")
+        metric_dir = resolve_path("metrics")
         metric_dir.mkdir(parents=True, exist_ok=True)
         csv_path = metric_dir / "pdebench_resolution_gradient_comparison.csv"
         with csv_path.open("w", newline="", encoding="utf-8") as f:
@@ -422,7 +421,7 @@ def compute_logic_audit() -> dict[str, Any]:
             writer.writeheader()
             writer.writerows(resolution_rows)
 
-        fig_dir = resolve_path("artifacts/burgers/figures/data/pdebench_resolution_audit")
+        fig_dir = resolve_path("figures/data/pdebench_resolution_audit")
         fig_dir.mkdir(parents=True, exist_ok=True)
         fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.0), constrained_layout=True)
         axes[0].plot(
@@ -474,7 +473,7 @@ def compute_logic_audit() -> dict[str, Any]:
         "front_detector_tracks_same_front_likely": bool(np.sum(front_steps > large_jump_threshold) == 0),
         "resolution_rows": resolution_rows,
     }
-    metric_dir = resolve_path("artifacts/burgers/metrics")
+    metric_dir = resolve_path("metrics")
     metric_dir.mkdir(parents=True, exist_ok=True)
     (metric_dir / "burgers_logic_audit.json").write_text(json.dumps(audit, indent=2), encoding="utf-8")
     return audit
@@ -482,19 +481,19 @@ def compute_logic_audit() -> dict[str, Any]:
 
 def main() -> None:
     setup_korean_font()
-    out = available_pdf_path(resolve_path("artifacts/burgers/reports/burgers_logic_review.pdf"))
+    out = available_pdf_path(resolve_path("reports/burgers_logic_review.pdf"))
     data = load_public_dataset_summary()
-    pod = read_json("artifacts/burgers/metrics/pdebench_burgers_pod_rank8_metrics.json")
-    dmd = read_json("artifacts/burgers/metrics/pdebench_burgers_dmd_rank8_metrics.json")
-    ae = read_json("artifacts/burgers/metrics/pdebench_burgers_ae_latent8_metrics.json")
+    pod = read_json("metrics/pdebench_burgers_pod_rank8_metrics.json")
+    dmd = read_json("metrics/pdebench_burgers_dmd_rank8_metrics.json")
+    ae = read_json("metrics/pdebench_burgers_ae_latent8_metrics.json")
     audit = compute_logic_audit()
-    failure_summary_path = resolve_path("artifacts/burgers/metrics/pdebench_failure_mode_summary.json")
-    failure_metrics_path = resolve_path("artifacts/burgers/metrics/pdebench_failure_mode_sweep_metrics.csv")
+    failure_summary_path = resolve_path("metrics/pdebench_failure_mode_summary.json")
+    failure_metrics_path = resolve_path("metrics/pdebench_failure_mode_sweep_metrics.csv")
     failure_summary = json.loads(failure_summary_path.read_text(encoding="utf-8")) if failure_summary_path.exists() else {}
     failure_rows = read_csv_rows(str(failure_metrics_path)) if failure_metrics_path.exists() else []
     comparison_rows = [
         row
-        for row in read_csv_rows("artifacts/burgers/metrics/burgers_model_comparison.csv")
+        for row in read_csv_rows("metrics/burgers_model_comparison.csv")
         if row.get("experiment_name", "").startswith("pdebench_burgers")
     ]
 
@@ -710,8 +709,8 @@ def main() -> None:
                     "공통 비교",
                     [
                         ("코드 경로", "scripts/compare_models.py"),
-                        ("입력", "artifacts/burgers/metrics/pdebench_burgers_*_metrics.json"),
-                        ("출력", "artifacts/burgers/metrics/burgers_model_comparison.csv"),
+                        ("입력", "metrics/pdebench_burgers_*_metrics.json"),
+                        ("출력", "metrics/burgers_model_comparison.csv"),
                         ("로직 판단", "세 방법의 metrics를 한 CSV로 모으는 로직은 맞다. 다만 POD reconstruction, DMD rollout, AE reconstruction/latent rollout은 물리적으로 같은 난이도의 문제는 아니므로 해석에서 구분해야 한다."),
                     ],
                 ),
@@ -863,7 +862,7 @@ def main() -> None:
             add_image_page(
                 pdf,
                 "공간해상도에 따른 front sharpness 비교",
-                "artifacts/burgers/figures/data/pdebench_resolution_audit/resolution_gradient_comparison.png",
+                "figures/data/pdebench_resolution_audit/resolution_gradient_comparison.png",
                 "nx=128은 현재 ROM 실험에 쓰인 processed 해상도이고, nx=1024는 PDEBench 원본 공간해상도이다. 이 그림은 downsampling이 max |du/dx|를 얼마나 줄이는지 보여준다.",
             )
 
@@ -937,37 +936,37 @@ def main() -> None:
             add_image_page(
                 pdf,
                 "smooth-like / shock-like case 선택 기준",
-                "artifacts/burgers/figures/failure_modes/pdebench_smooth_shock_failure_modes/case_sharpness_selection.png",
+                "figures/failure_modes/pdebench_smooth_shock_failure_modes/case_sharpness_selection.png",
                 "test split case들의 mean max |du/dx|를 표시하고, smooth/shock 비교에 사용한 smooth-like case 53과 shock-like case 52를 강조했다.",
             )
             add_image_page(
                 pdf,
                 "smooth-like와 shock-like true space-time field",
-                "artifacts/burgers/figures/failure_modes/pdebench_smooth_shock_failure_modes/smooth_vs_shock_true_spacetime.png",
+                "figures/failure_modes/pdebench_smooth_shock_failure_modes/smooth_vs_shock_true_spacetime.png",
                 "두 case의 true solution을 나란히 보여준다. shock-like case는 공간 기울기가 큰 구조가 훨씬 뚜렷하다.",
             )
             add_image_page(
                 pdf,
                 "smooth-like case front 주변 overlay",
-                "artifacts/burgers/figures/failure_modes/pdebench_smooth_shock_failure_modes/front_overlay_smooth_like_case53.png",
+                "figures/failure_modes/pdebench_smooth_shock_failure_modes/front_overlay_smooth_like_case53.png",
                 "smooth-like case에서 truth, POD rank 8, DMD rank 8, AE latent 8 결과를 front 주변에서 겹쳐 그렸다.",
             )
             add_image_page(
                 pdf,
                 "shock-like case front 주변 overlay",
-                "artifacts/burgers/figures/failure_modes/pdebench_smooth_shock_failure_modes/front_overlay_shock_like_case52.png",
+                "figures/failure_modes/pdebench_smooth_shock_failure_modes/front_overlay_shock_like_case52.png",
                 "shock-like case에서 truth, POD rank 8, DMD rank 8, AE latent 8 결과를 front 주변에서 겹쳐 그렸다. local absolute error도 함께 표시했다.",
             )
             add_image_page(
                 pdf,
                 "POD rank / AE latent dimension sweep",
-                "artifacts/burgers/figures/failure_modes/pdebench_smooth_shock_failure_modes/pod_rank_ae_latent_sweep.png",
+                "figures/failure_modes/pdebench_smooth_shock_failure_modes/pod_rank_ae_latent_sweep.png",
                 "POD rank와 AE latent dimension을 2, 4, 8, 16, 32로 바꿨을 때 post-split relative L2가 어떻게 달라지는지 smooth-like와 shock-like case로 나누어 표시했다.",
             )
             add_image_page(
                 pdf,
                 "동일 학습 조건 reconstruction 비교",
-                "artifacts/burgers/figures/failure_modes/pdebench_smooth_shock_failure_modes/same_training_reconstruction_comparison.png",
+                "figures/failure_modes/pdebench_smooth_shock_failure_modes/same_training_reconstruction_comparison.png",
                 "POD와 AE가 같은 temporal training snapshots를 사용하도록 맞춘 controlled comparison이다. 이 그림도 순위가 아니라 조건을 맞춘 관찰 결과로 읽어야 한다.",
             )
 
@@ -1023,7 +1022,7 @@ def main() -> None:
         add_method_figures(
             pdf,
             "POD",
-            "artifacts/burgers/figures/pod/pdebench_burgers_pod_rank8",
+            "figures/pod/pdebench_burgers_pod_rank8",
             [
                 ("pod_energy_spectrum.png", "POD singular value spectrum과 cumulative energy. Rank 선택과 에너지 집중 정도를 확인한다."),
                 ("pod_final_reconstruction.png", "Held-out case 52의 마지막 snapshot에서 truth와 POD reconstruction을 비교한다."),
@@ -1036,7 +1035,7 @@ def main() -> None:
         add_method_figures(
             pdf,
             "DMD",
-            "artifacts/burgers/figures/dmd/pdebench_burgers_dmd_rank8",
+            "figures/dmd/pdebench_burgers_dmd_rank8",
             [
                 ("dmd_eigenvalues.png", "DMD eigenvalue 위치. Rollout 안정성과 mode 감쇠/성장 가능성을 확인한다."),
                 ("dmd_final_rollout.png", "마지막 시점에서 truth와 DMD free rollout prediction을 비교한다."),
@@ -1048,7 +1047,7 @@ def main() -> None:
         add_method_figures(
             pdf,
             "Autoencoder",
-            "artifacts/burgers/figures/autoencoder/pdebench_burgers_ae_latent8",
+            "figures/autoencoder/pdebench_burgers_ae_latent8",
             [
                 ("autoencoder_final_reconstruction.png", "마지막 시점에서 truth와 Conv1D AE reconstruction을 비교한다."),
                 ("autoencoder_latent_rollout_final.png", "마지막 시점에서 truth와 latent linear rollout 결과를 비교한다."),
