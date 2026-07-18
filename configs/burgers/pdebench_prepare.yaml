@@ -7,7 +7,7 @@ source:
   nu: "0.01"
   url: https://darus.uni-stuttgart.de/api/access/datafile/281363
   path: data/external/pdebench/1D_Burgers_Sols_Nu0.01.hdf5
-  download: false
+  download: true
 data:
   path: data/processed/burgers/pdebench_burgers_nu0.01_subset.h5
 subset:

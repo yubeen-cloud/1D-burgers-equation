@@ -43,6 +43,9 @@ Prepare the 64-case, time/space-strided subset with:
 python scripts/prepare_pdebench_burgers.py --config configs/burgers/pdebench_prepare.yaml
 ```
 
+If the public source file is missing, the preparer downloads it from the
+configured PDEBench data URL before conversion.
+
 The processed dataset is written to
 `data/processed/burgers/pdebench_burgers_nu0.01_subset.h5` with coordinates,
 solution fields, viscosity, split indices, source metadata, and resolved config.
