@@ -13,6 +13,8 @@ data:
 subset:
   case_offset: 0
   n_cases: 64
+  selection_strategy: random_without_replacement
+  selection_seed: 42
   time_stride: 2
   space_stride: 8
 plot:

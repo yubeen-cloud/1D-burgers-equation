@@ -12,7 +12,7 @@ import numpy as np
 
 from rom_bench.config import parse_config_args, save_yaml
 from rom_bench.data.io import read_h5, write_json
-from rom_bench.evaluation.field_metrics import error_over_time, relative_l2
+from rom_bench.evaluation.field_metrics import error_over_time, relative_l2, spatial_gradient_error
 from rom_bench.evaluation.front_tracking import front_position_error
 from rom_bench.evaluation.reports import write_markdown_report
 from rom_bench.models.autoencoder_1d import Conv1dAutoencoder, DenseAutoencoderFallback
@@ -217,9 +217,12 @@ def main() -> None:
         "reconstruction_relative_l2": relative_l2(u, reconstruction),
         "rollout_relative_l2": float(np.mean(roll_err[train_end:])),
         "final_rollout_error": float(roll_err[-1]),
-        "front_position_mae": float(front_err.mean()),
+        "front_position_mae": float(front_err[train_end:].mean()),
         "front_speed_error": float("nan"),
-        "max_gradient_error": float(front_err.max()),
+        "max_front_position_error": float(front_err[train_end:].max()),
+        "spatial_gradient_relative_l2": spatial_gradient_error(
+            u[train_end:], rollout[train_end:], x
+        ),
         "best_training_loss": best_loss,
         "epochs_ran": epochs_ran,
         "device": device,

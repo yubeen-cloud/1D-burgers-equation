@@ -10,7 +10,7 @@ import _bootstrap  # noqa: F401
 
 from rom_bench.config import parse_config_args, save_yaml
 from rom_bench.data.io import read_h5, write_json
-from rom_bench.evaluation.field_metrics import error_over_time, relative_l2
+from rom_bench.evaluation.field_metrics import error_over_time, relative_l2, spatial_gradient_error
 from rom_bench.evaluation.front_tracking import front_position_error, front_speed_error
 from rom_bench.evaluation.reports import write_markdown_report
 from rom_bench.models.pod import PODModel, rank_errors
@@ -60,7 +60,10 @@ def _burgers(config: dict) -> None:
         "final_rollout_error": float(err[-1]),
         "front_position_mae": float(front_err.mean()),
         "front_speed_error": front_speed_error(x, t, all_snapshots, reconstruction),
-        "max_gradient_error": float(front_err.max()),
+        "max_front_position_error": float(front_err.max()),
+        "spatial_gradient_relative_l2": spatial_gradient_error(
+            all_snapshots, reconstruction, x
+        ),
         "training_time": time.perf_counter() - start,
         "inference_time": 0.0,
     }

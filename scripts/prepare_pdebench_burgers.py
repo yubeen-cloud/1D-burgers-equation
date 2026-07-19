@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import _bootstrap  # noqa: F401
+import numpy as np
 
 from rom_bench.config import parse_config_args, save_yaml
 from rom_bench.data.io import environment_info, write_h5, write_json
@@ -37,14 +38,30 @@ def main() -> None:
         )
 
     inspection = inspect_pdebench_burgers(raw_path)
+    selection_strategy = str(subset_cfg.get("selection_strategy", "contiguous"))
+    selection_seed = int(subset_cfg.get("selection_seed", config["experiment"].get("seed", 42)))
+    n_cases = int(subset_cfg.get("n_cases", 64))
+    if selection_strategy == "random_without_replacement":
+        n_total = int(inspection["tensor_shape"][0])
+        case_indices = np.random.default_rng(selection_seed).choice(
+            n_total, size=n_cases, replace=False
+        )
+    elif selection_strategy == "contiguous":
+        case_indices = None
+    else:
+        raise ValueError(f"Unsupported subset.selection_strategy: {selection_strategy}")
     arrays, source_metadata = convert_pdebench_burgers_subset(
         source_path=raw_path,
         nu=float(nu),
-        n_cases=int(subset_cfg.get("n_cases", 64)),
+        n_cases=n_cases,
         case_offset=int(subset_cfg.get("case_offset", 0)),
         time_stride=int(subset_cfg.get("time_stride", 2)),
         space_stride=int(subset_cfg.get("space_stride", 8)),
+        case_indices=case_indices,
+        split_seed=selection_seed,
     )
+    source_metadata["subset"]["selection_strategy"] = selection_strategy
+    source_metadata["subset"]["selection_seed"] = selection_seed
     metadata = {
         **environment_info(),
         **source_metadata,

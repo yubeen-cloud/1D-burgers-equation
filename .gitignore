@@ -17,4 +17,5 @@ data/processed/**/*.h5
 /reports/burgers_comparison.md
 *.png
 *.pdf
+!reports/burgers_logic_review.pdf
 *.npz

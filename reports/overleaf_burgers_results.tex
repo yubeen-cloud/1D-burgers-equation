@@ -1,0 +1,275 @@
+% !TeX program = pdflatex
+% Overleaf compiler: pdfLaTeX (default)
+% Keep this file in reports/ and upload figures/ with the same directory structure.
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{kotex}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{geometry}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\geometry{margin=24mm}
+\hypersetup{colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!60!black,citecolor=blue!50!black}
+\setlength{\parindent}{1em}
+\setlength{\parskip}{0.35em}
+\setlist{nosep}
+\graphicspath{{../figures/}}
+
+\newcommand{\relLtwo}{\ensuremath{\epsilon_{L_2}}}
+\newcommand{\resultfigure}[3]{%
+  \begin{figure}[H]
+    \centering
+    \IfFileExists{#1}{\includegraphics[width=0.94\textwidth,height=0.68\textheight,keepaspectratio]{#1}}{%
+      \fbox{\parbox[c][35mm][c]{0.88\textwidth}{\centering 그림 파일을 함께 업로드하세요.\\\texttt{\detokenize{#1}}}}}
+    \caption{#2}
+    \label{#3}
+  \end{figure}%
+}
+
+\title{공개 PDEBench 데이터를 이용한\\1차원 점성 Burgers 방정식의 저차원 모델 비교}
+\author{Yubeen}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+본 연구에서는 공개 PDEBench 1차원 점성 Burgers 데이터에 Proper Orthogonal Decomposition(POD), Dynamic Mode Decomposition(DMD)과 합성곱 오토인코더(AE)를 적용하고 이동 전면과 급격한 공간 기울기의 표현 및 예측 실패를 비교하였다. 원본 \texttt{1D\_Burgers\_Sols\_Nu0.01.hdf5}의 10,000개 trajectory에서 seed 42로 64개를 비복원 무작위 추출하고, 시간 방향 stride 2와 공간 방향 stride 8을 적용하여 각 trajectory를 101개 시간점과 128개 공간점으로 구성하였다. Test split에서 평균 최대 기울기가 가장 큰 extreme shock-like case 14(source trajectory 2760)의 미래구간 상대 $L_2$ 오차는 rank-8 DMD 0.8868, latent-dimension-8 AE rollout 0.8807로 두 방법 모두 크게 악화됐다. 13개 test trajectory 전체의 case-specific temporal extrapolation에서 DMD와 AE rollout 평균은 각각 $0.234\pm0.264$와 $0.311\pm0.355$였으며, shock-like 그룹에서 오차가 더 컸다. POD는 시간 예측기가 아닌 global-basis 투영 복원 모델이므로 rollout 방법과 직접 순위화하지 않는다. 128점 격자의 평균 최대 기울기는 1024점 원본의 80.63\%로 감소하였다. 결과는 moving-front 난이도와 모델별 실패의 큰 case dependence를 보여준다.
+\end{abstract}
+
+\noindent\textbf{주요어:} Burgers 방정식, PDEBench, POD, DMD, autoencoder, reduced-order model, moving front
+
+\section{연구 목적}
+
+점성 Burgers 방정식은 비선형 이류와 점성 확산이 동시에 작용하는 대표적인 비선형 편미분방정식이다. 특히 해의 급격한 전면이 이동할 때 고정 선형 기저는 단순한 평행이동도 여러 mode의 조합으로 표현해야 한다. 본 연구에서는 POD rank 민감도, DMD 시간 전진, AE 비선형 표현, 전면 위치와 공간 기울기 오차를 동일한 공개 데이터에서 비교한다.
+
+\section{지배방정식과 데이터 해석 범위}
+
+분석 대상은 다음의 1차원 점성 Burgers 방정식이다.
+\begin{equation}
+  \frac{\partial u}{\partial t}
+  +u\frac{\partial u}{\partial x}
+  =\nu\frac{\partial^2u}{\partial x^2},
+  \qquad \nu=0.01.
+\end{equation}
+여기서 $u(x,t)$는 스칼라 상태, $\nu$는 일정한 점성계수이다. 본 연구는 PDE를 새로 적분하지 않고 PDEBench가 제공한 해를 분석한다. 각 trajectory의 초기장은 archive에 저장된 $u(x,0)$이며, subset에 기록되지 않은 생성 조건을 결과에서 역추정하지 않는다.
+
+\section{공개 데이터셋과 전처리}
+
+사용 데이터는 PDEBench Datasets(DOI: \href{https://doi.org/10.18419/DARUS-2986}{10.18419/DARUS-2986})의 \texttt{1D\_Burgers\_Sols\_Nu0.01.hdf5}이다. 분석용 subset은 seed 42의 \texttt{numpy.random.default\_rng}로 원본 10,000개 중 64개를 비복원 무작위 선택한 뒤 \texttt{time\_stride=2}, \texttt{space\_stride=8}을 적용해 생성한다. 정렬된 원본 trajectory index 64개는 processed HDF5의 \texttt{source\_case\_indices}와 metadata JSON에 저장한다.
+
+\begin{table}[H]
+\centering
+\caption{PDEBench Burgers 데이터와 분석용 subset.}
+\begin{tabular}{lrr}
+\toprule
+항목 & 원본 & 분석용 subset \\
+\midrule
+Trajectory 수 & 10,000 & 64 \\
+시간점 수 & 201 & 101 \\
+공간점 수 & 1,024 & 128 \\
+시간 범위 & -- & $0\le t\le2$ \\
+점성계수 & -- & $\nu=0.01$ \\
+Train/validation/test trajectory & -- & 38/13/13 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Local trajectory split도 seed 42 permutation으로 train/validation/test 38/13/13개를 구성하므로 연속 원본 index에 의존하지 않는다. 대표 failure case는 test split 중 평균 최대 $|\partial_xu|$가 가장 큰 local case 14(source trajectory 2760)이며, 일반적인 대표 사례가 아니라 의도적으로 선택한 extreme case이다. DMD와 AE의 시간 외삽은 index 0--59를 학습에 사용하고 60--100($t\ge1.2$)을 미래 평가로 유지한다. 미래 snapshot은 dynamics fitting에 사용하지 않는다. AE encoder--decoder도 같은 case의 앞 60개 snapshot으로 학습되므로 이 평가는 unseen-trajectory가 아니라 case-specific temporal extrapolation이다.
+
+\section{저차원 모델}
+
+\subsection{POD}
+
+각 snapshot을 행으로 쌓은 평균 제거 행렬 $X_c\in\mathbb{R}^{N_s\times N_x}$에 특이값분해를 적용한다.
+\begin{equation}
+  X_c=U\Sigma V^{\mathsf T},\qquad
+  \Psi_r=V_{:,1:r}\in\mathbb{R}^{N_x\times r},\qquad
+  \widehat u_r(t)=\bar{u}+\Psi_r\Psi_r^{\mathsf T}\bigl(u(t)-\bar{u}\bigr).
+\end{equation}
+현재 구현처럼 snapshot이 행인 convention에서는 공간 POD basis가 $V$의 열, 즉 코드의 \texttt{Vh[:rank]} 행을 전치한 $\Psi_r$이다. Snapshot을 열로 쌓는 반대 convention에서는 공간 basis가 $U_r$가 되므로 두 표기를 혼합하지 않는다. 누적 에너지는 $\sum_{i=1}^{r}\sigma_i^2/\sum_i\sigma_i^2$로 정의한다. 기본 POD basis는 38개 train trajectory의 모든 snapshot으로 구성하고 test case 14를 투영한다.
+
+\subsection{DMD}
+
+연속 snapshot pair $X_1=[u_0,\ldots,u_{58}]$, $X_2=[u_1,\ldots,u_{59}]$로부터 rank-8 exact DMD를 추정한다.
+\begin{equation}
+  X_2\approx AX_1,\qquad
+  \widetilde A=U_r^{\mathsf T}X_2V_r\Sigma_r^{-1}.
+\end{equation}
+Exact DMD의 eigendecomposition과 물리 mode는
+\begin{equation}
+  \widetilde A W=W\Lambda,\qquad
+  \Phi=X_2V_r\Sigma_r^{-1}W
+\end{equation}
+로 계산한다. 예측은 $u_k=\operatorname{Re}(\Phi\Lambda^kb)$로 구성한다.
+Index 60 이후에는 정답 field를 다시 입력하지 않는 free rollout을 사용했으며 불안정 고유값에 대한 사후 필터는 적용하지 않았다.
+
+\subsection{Conv1D autoencoder}
+
+Encoder $E_\theta$와 decoder $D_\phi$는 128차원 snapshot을 8차원 latent vector로 압축하고 복원한다.
+\begin{equation}
+  z_t=E_\theta(u_t),\qquad \widehat u_t=D_\phi(z_t).
+\end{equation}
+Encoder는 Conv1D$(1\to16,$ kernel 5, stride 1, padding 2$)$--GELU--Conv1D$(16\to16,$ kernel 5, stride 2, padding 2$)$--GELU--linear-to-latent로 구성한다. Decoder는 latent linear layer, 길이 128의 linear upsampling, Conv1D$(16\to16,$ kernel 5$)$--GELU--Conv1D$(16\to1,$ kernel 5$)$을 사용한다. Adam optimizer($\mathrm{lr}=10^{-3}$, weight decay 0), batch size 32, normalized field MSE, 최대 300 epoch와 seed 42를 사용한다. Early stopping patience는 config에 50이지만 이번 기본 실행은 epoch cap 300에 도달했다. 각 공간점별 training mean과 전체 training snapshot의 scalar standard deviation으로 정규화한다. Latent rollout은 index 0--59 code에 intercept 없는 least-squares linear map을 fitting하고 초기 latent state부터 반복 적용한다.
+
+\section{평가 지표}
+
+전역 상대오차는
+\begin{equation}
+  \relLtwo=\frac{\lVert\widehat U-U\rVert_2}{\lVert U\rVert_2+\varepsilon}
+\end{equation}
+로 정의한다. 전면 위치는 각 시간에서 $|\partial u/\partial x|$가 최대인 공간 위치로 정의하고 truth와 prediction의 위치 차이에 대한 MAE를 계산한다. Smooth-like case에서는 뚜렷한 단일 shock가 없으므로 전면 MAE를 공식 비교 지표로 사용하지 않는다.
+
+Reconstruction relative $L_2$는 POD와 AE의 명시된 reconstruction 전체 구간에서 계산한다. DMD의 reconstruction 값은 index 0--59 per-snapshot relative $L_2$의 평균이고, future rollout error는 index 60--100 평균, final error는 index 100의 relative $L_2$이다. 공간 gradient error는 post-split 구간에서
+\begin{equation}
+  \epsilon_{\partial_xu}=
+  \frac{\lVert\partial_x\widehat U-\partial_xU\rVert_2}
+       {\lVert\partial_xU\rVert_2+\varepsilon}
+\end{equation}
+로 계산한다. $\partial_xu$는 downsampled 좌표를 전달한 \texttt{numpy.gradient}로 계산하므로 내부점은 2차 central difference, 경계점은 기본 1차 one-sided difference를 사용하며 별도의 periodic stencil이나 interpolation은 적용하지 않는다. Front-window error는 미래구간에서 truth의 최대 기울기가 가장 큰 시점에 $|x-x_{\mathrm{front}}|\le0.08$인 점만 사용한 relative $L_2$이다. Post-split error는 index 60--100 per-snapshot relative $L_2$의 평균이다.
+
+본 보고서의 ``shock-like''는 실제 불연속 충격파를 뜻하지 않는다. 점성 $\nu=0.01$로 완화된 연속해 중 test set에서 공간 기울기가 상대적으로 큰 급경사 이동 전면을 의미한다.
+
+\section{결과}
+
+\subsection{Extreme shock-like case 14 비교}
+
+\begin{table}[H]
+\centering
+\caption{Extreme shock-like case 14의 결과. Training scope가 다르므로 직접 순위표가 아니다.}
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llrrrrrr}
+\toprule
+방법 & Training scope & 차원 & Recon. $L_2$ & Rollout $L_2$ & 최종 오차 & Front MAE & Gradient $L_2$ \\
+\midrule
+POD & 38 train cases & 8 & 0.3096 & -- & 0.1199 & 0.1067 & 0.8752 \\
+DMD & case 14, $0{:}59$ & 8 & 0.1710 & 0.8868 & 1.2586 & 0.3973 & 2.2892 \\
+Conv1D AE & case 14, $0{:}59$ & 8 & 0.2841 & 0.8807 & 1.0361 & 0.2673 & 2.3591 \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+POD는 global train basis의 projection이고 DMD/AE는 case-specific temporal model이므로 같은 열을 직접 순위화하지 않는다. Case 14에서는 DMD와 AE rollout이 모두 약 0.88로 실패했으며, AE reconstruction 0.2841이 안정적인 latent rollout을 보장하지 않았다. Front MAE와 gradient error도 미래구간에서 크게 증가했다.
+
+\resultfigure{../figures/comparison/rollout_relative_l2_comparison.png}{Extreme case 14에서 DMD와 AE latent rollout의 미래구간 상대 $L_2$ 오차. POD rollout은 정의되지 않는다.}{fig:burgers-rollout}
+
+\subsection{POD rank 민감도}
+
+\begin{table}[H]
+\centering
+\caption{POD rank에 따른 train/test projection error.}
+\begin{tabular}{rrr}
+\toprule
+Rank & Train 상대 $L_2$ & Test 상대 $L_2$ \\
+\midrule
+2 & 0.2450 & 0.6724 \\
+4 & 0.1838 & 0.5971 \\
+8 & 0.09497 & 0.3096 \\
+16 & 0.04265 & 0.1340 \\
+32 & 0.01495 & 0.05872 \\
+64 & 0.002886 & 0.01885 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Rank 증가에 따라 test projection error는 단조 감소한다. Rank 8에서는 이동 전면을 표현하기에 기저 차원이 부족하며, 이는 이동 구조가 고정 선형 부분공간에서 느리게 수렴하는 현상과 일치한다.
+
+\resultfigure{../figures/pod/pdebench_burgers_pod_rank8/pod_energy_spectrum.png}{Train snapshot으로 계산한 POD singular-value energy spectrum.}{fig:burgers-pod-energy}
+
+\subsection{Smooth-like와 shock-like 거동}
+
+Test split에서 시간평균 최대 기울기가 가장 작은 local case 45(source trajectory 7564)를 smooth-like, 가장 큰 local case 14(source trajectory 2760)를 shock-like로 선택하였다. 두 값은 각각 0.7945와 34.0401이다. Controlled dimension sweep에서는 POD와 AE 모두 각 case의 index 0--59로 case-specific reconstruction 모델을 맞추고 DMD도 같은 구간으로 operator를 맞췄다. 따라서 38개 train trajectory로 만든 global POD 결과와 이 sweep 결과를 직접 혼합하지 않는다.
+
+Shock-like case의 POD post-split oracle reconstruction 오차는 rank 8, 16, 32에서 각각 0.5636, 0.5087, 0.4613이다. AE의 해당 값은 latent dimension 8, 16, 32에서 0.5458, 0.5417, 0.5314로 감소 폭이 제한적이었다. 이 controlled AE sweep은 각 차원당 120 epoch로 별도 학습한 post-split oracle reconstruction이다. 표~1의 기본 AE 값 0.2841은 latent dimension 8, 300 epoch 모델의 전체 101 snapshot reconstruction이므로 학습 예산과 시간 범위가 달라 수치가 직접 일치하지 않는다.
+
+\resultfigure{../figures/failure_modes/pdebench_smooth_shock_failure_modes/smooth_vs_shock_true_spacetime.png}{같은 PDEBench subset에서 선택한 smooth-like case 45와 shock-like case 14의 시공간 field.}{fig:burgers-regimes}
+
+\resultfigure{../figures/failure_modes/pdebench_smooth_shock_failure_modes/front_overlay_shock_like_case14.png}{Shock-like case 14의 held-out 구간($t\ge1.2$)에서 truth의 최대 기울기가 가장 큰 시점을 골라 truth, POD rank 8, DMD rank 8과 AE latent 8을 비교한 전면 주변 overlay 및 국부 절대오차.}{fig:burgers-front-overlay}
+
+그림~\ref{fig:burgers-front-overlay}는 전역 $L_2$ 오차만으로 드러나지 않는 실패 위치를 보여준다. 전면 위치가 조금만 어긋나거나 기울기가 완화되어도 오차가 front 주변에 집중되며, 전면 위치 MAE가 작더라도 진폭과 sharpness가 동시에 정확하다는 뜻은 아니다.
+
+\resultfigure{../figures/failure_modes/pdebench_smooth_shock_failure_modes/pod_rank_ae_latent_sweep.png}{Smooth-like와 shock-like case에서 POD rank와 AE latent dimension 변화에 따른 post-split 및 front-window 오차.}{fig:burgers-dimension-sweep}
+
+\subsection{13개 test trajectory 전체 평가}
+
+대표 extreme case의 사후 선택 편향을 줄이기 위해 test split의 13개 trajectory 각각에 대해 index 0--59로 case-specific rank-8 DMD와 latent-dimension-8 AE를 맞추고 index 60--100을 자율 rollout하였다. 아래 표의 평균과 표준편차는 trajectory별 미래구간 평균 상대 $L_2$의 분포이며, front 위치는 13개 trajectory별 MAE의 중앙값과 사분위 범위(IQR)이다. Smooth/shock 그룹은 test set의 시간평균 최대 기울기 중앙값 10.3358을 기준으로 나눴다. Divergence는 비유한 값이 발생하거나 미래 단일 snapshot 상대 $L_2$가 10을 넘는 경우로 정의했다.
+
+\begin{table}[H]
+\centering
+\caption{13개 test trajectory의 case-specific temporal extrapolation 집계.}
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrr}
+\toprule
+방법 & Rollout 평균$\pm$표준편차 & 최종 평균$\pm$표준편차 & Front MAE 중앙값 [IQR] & Smooth 평균 & Shock 평균 & 발산 case \\
+\midrule
+DMD & $0.234\pm0.264$ & $0.295\pm0.387$ & 0.297 [0.204, 0.392] & 0.078 & 0.366 & 0/13 \\
+AE latent rollout & $0.311\pm0.355$ & $0.344\pm0.409$ & 0.280 [0.230, 0.385] & 0.108 & 0.486 & 0/13 \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+전체 test 평균에서는 DMD가 더 낮은 rollout error를 보이지만 표준편차가 평균보다 커 case dependence가 매우 크다. Extreme case 14에서는 DMD와 AE가 모두 약 0.88로 실패했고 둘의 차이도 작다. 따라서 단일 case 결과를 전체 데이터의 방법 우열로 일반화하지 않는다.
+
+\subsection{공간 해상도 영향}
+
+\begin{table}[H]
+\centering
+\caption{공간 해상도에 따른 shock sharpness와 최대-기울기 검출기 위치 변화.}
+\begin{tabular}{rrrrr}
+\toprule
+$N_x$ & $\Delta x$ & 평균 최대 $|u_x|$ & 1024점 대비 & 최대 연속 검출위치 jump \\
+\midrule
+128 & 0.0078125 & 34.0401 & 0.8063 & 0.9922 \\
+256 & 0.00390625 & 39.5513 & 0.9368 & 0.9961 \\
+1024 & 0.0009766 & 42.2185 & 1.0000 & 0.9893 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+현재 ROM 입력인 128점 해상도는 원본 1024점 대비 평균 최대 기울기를 약 19.37\% 낮춘다. 마지막 열은 물리적 front 속도나 해상도 오차가 아니라, 각 시간의 global maximum-gradient 위치를 독립적으로 고른 검출기가 서로 다른 급경사 또는 주기 경계 양쪽으로 전환될 때 생기는 최대 연속 위치 jump이다. 거의 1에 가까운 값과 1024점에서 82회의 큰 jump는 이 단순 검출기가 연속 trajectory 추적기로 적합하지 않음을 보여준다. 따라서 front MAE는 같은 검출 규칙의 모델 간 보조 비교로만 사용하며, gradient와 field error를 함께 확인한다.
+
+\resultfigure{../figures/data/pdebench_resolution_audit/resolution_gradient_comparison.png}{동일 case를 128, 256, 1024 공간점으로 표현했을 때의 최대 기울기 변화.}{fig:burgers-resolution}
+
+\section{논의 및 한계}
+
+13개 test trajectory 평균에서 rank-8 DMD는 latent-dimension-8 AE보다 낮은 rollout error를 보였지만 분산이 크며, extreme shock-like case 14에서는 두 방법 모두 약 0.88의 큰 오차를 보였다. AE의 더 작은 case-14 front MAE(0.2673)는 field amplitude나 gradient까지 더 정확하다는 뜻이 아니며, 실제 gradient error는 DMD 2.2892와 AE 2.3591로 모두 크다. 전면 위치, 전역 $L_2$, front-window error와 gradient error를 함께 읽어야 한다.
+
+본 연구의 주요 한계는 다음과 같다. DMD와 AE aggregate는 각 test trajectory의 앞 시간구간을 다시 사용한 case-specific temporal extrapolation이며 완전한 unseen-trajectory 예측이 아니다. Extreme case 14는 test 결과를 본 뒤 최대 기울기로 선택한 사례이므로 단독 결론에는 selection bias가 있다. AE는 단일 seed 결과이다. POD projection과 DMD/AE rollout은 평가 의미가 다르다. stride-only 공간 다운샘플링은 anti-aliasing filter 없이 급경사를 완화하거나 왜곡할 수 있다. 최대-기울기 전면 검출기는 서로 다른 급경사와 주기 경계 사이에서 전환될 수 있다. 또한 방정식 residual과 보존량을 직접 평가하지 않았으므로 작은 field error가 물리 법칙 충족을 의미하지 않는다.
+
+\section{재현 방법}
+
+프로젝트 루트에서 다음 명령을 실행한다.
+\begin{verbatim}
+python scripts/run_all.py --config configs/burgers/run_all.yaml
+pytest -q
+ruff check src scripts tests
+\end{verbatim}
+
+\section{결론}
+
+공개 PDEBench $\nu=0.01$ Burgers 무작위 subset의 13개 test trajectory에서 rank-8 DMD는 동일 차원 AE latent rollout보다 평균 미래구간 오차가 낮았지만 case 간 편차가 컸다. Extreme shock-like case에서는 두 방법 모두 실패했고, AE reconstruction이 안정적인 latent prediction을 보장하지 않았다. POD rank sweep과 해상도 분석은 이동 전면이 저차원 선형 기저와 거친 격자에서 모두 어려운 구조임을 보여준다. 이 결론은 case-specific temporal extrapolation baseline에 한정되며 unseen-trajectory 일반화 주장으로 확장하지 않는다.
+
+\begin{thebibliography}{9}
+\bibitem{pdebench}
+M. Takamoto et al., ``PDEBench: An Extensive Benchmark for Scientific Machine Learning,'' \emph{NeurIPS Datasets and Benchmarks}, 2022. \url{https://proceedings.neurips.cc/paper_files/paper/2022/hash/0a9747136d411fb83f0cf81820d44afb-Abstract-Datasets_and_Benchmarks.html}
+
+\bibitem{pdebenchdata}
+M. Takamoto et al., ``PDEBench Datasets,'' DaRUS, Version 7.0, DOI: 10.18419/DARUS-2986. \url{https://darus.uni-stuttgart.de/dataset.xhtml?persistentId=doi:10.18419/DARUS-2986}
+
+\bibitem{sirovich}
+L. Sirovich, ``Turbulence and the dynamics of coherent structures. Part I: Coherent structures,'' \emph{Quarterly of Applied Mathematics}, 45(3), 1987.
+
+\bibitem{schmid}
+P. J. Schmid, ``Dynamic mode decomposition of numerical and experimental data,'' \emph{Journal of Fluid Mechanics}, 656, 2010.
+\end{thebibliography}
+
+\end{document}

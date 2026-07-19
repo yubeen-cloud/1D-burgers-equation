@@ -12,7 +12,11 @@ import numpy as np
 
 from rom_bench.config import parse_config_args, save_yaml
 from rom_bench.data.io import read_h5, write_json
-from rom_bench.evaluation.field_metrics import error_over_time, first_threshold_time
+from rom_bench.evaluation.field_metrics import (
+    error_over_time,
+    first_threshold_time,
+    spatial_gradient_error,
+)
 from rom_bench.evaluation.front_tracking import front_position_error
 from rom_bench.evaluation.reports import write_markdown_report
 from rom_bench.models.dmd import DMDModel
@@ -70,9 +74,12 @@ def main() -> None:
         "reconstruction_relative_l2": float(np.mean(err[:rollout_start])),
         "rollout_relative_l2": float(np.mean(err[rollout_start:])),
         "final_rollout_error": float(err[-1]),
-        "front_position_mae": float(front_err.mean()),
+        "front_position_mae": float(front_err[rollout_start:].mean()),
         "front_speed_error": float("nan"),
-        "max_gradient_error": float(front_err.max()),
+        "max_front_position_error": float(front_err[rollout_start:].max()),
+        "spatial_gradient_relative_l2": spatial_gradient_error(
+            u[rollout_start:], pred[rollout_start:], x
+        ),
         "dominant_frequency": model.dominant_frequency(),
         "threshold_crossing_time": first_threshold_time(t, err, float(config["evaluation"].get("error_threshold", 0.2))),
         "training_time": time.perf_counter() - start,

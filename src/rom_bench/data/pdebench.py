@@ -73,6 +73,8 @@ def convert_pdebench_burgers_subset(
     case_offset: int,
     time_stride: int,
     space_stride: int,
+    case_indices: np.ndarray | None = None,
+    split_seed: int = 42,
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     """Convert a subset of PDEBench Burgers to the local standard HDF5 layout."""
     with h5py.File(source_path, "r") as h5:
@@ -86,14 +88,24 @@ def convert_pdebench_burgers_subset(
             channels = 1
         else:
             raise ValueError(f"Expected 3D or 4D Burgers tensor, got shape {tensor.shape}")
-        end = min(case_offset + n_cases, n_total)
-        case_slice = slice(case_offset, end)
+        if case_indices is None:
+            end = min(case_offset + n_cases, n_total)
+            selected_source_indices = np.arange(case_offset, end, dtype=np.int64)
+        else:
+            selected_source_indices = np.asarray(case_indices, dtype=np.int64)
+            if selected_source_indices.ndim != 1 or len(selected_source_indices) != n_cases:
+                raise ValueError("case_indices must be one-dimensional with exactly n_cases entries")
+            if len(np.unique(selected_source_indices)) != len(selected_source_indices):
+                raise ValueError("case_indices must not contain duplicates")
+            if np.any(selected_source_indices < 0) or np.any(selected_source_indices >= n_total):
+                raise ValueError("case_indices are outside the source trajectory range")
+            selected_source_indices = np.sort(selected_source_indices)
         time_slice = slice(None, None, time_stride)
         space_slice = slice(None, None, space_stride)
         if len(tensor.shape) == 4:
-            u = np.asarray(tensor[case_slice, time_slice, space_slice, 0], dtype=np.float64)
+            u = np.asarray(tensor[selected_source_indices, time_slice, space_slice, 0], dtype=np.float64)
         else:
-            u = np.asarray(tensor[case_slice, time_slice, space_slice], dtype=np.float64)
+            u = np.asarray(tensor[selected_source_indices, time_slice, space_slice], dtype=np.float64)
         x = np.asarray(h5["x-coordinate"][space_slice], dtype=np.float64)
         if "t-coordinate" in h5:
             t = np.asarray(h5["t-coordinate"][:nt_total][time_slice], dtype=np.float64)
@@ -103,14 +115,16 @@ def convert_pdebench_burgers_subset(
     n = u.shape[0]
     train_end = max(1, int(0.6 * n))
     val_end = max(train_end + 1, int(0.8 * n)) if n > 2 else train_end
-    train = np.arange(0, min(train_end, n), dtype=np.int64)
-    val = np.arange(train[-1] + 1, min(val_end, n), dtype=np.int64) if n > 1 else np.array([], dtype=np.int64)
-    test = np.setdiff1d(np.arange(n, dtype=np.int64), np.concatenate([train, val]))
+    permutation = np.random.default_rng(split_seed).permutation(n).astype(np.int64)
+    train = np.sort(permutation[:train_end])
+    val = np.sort(permutation[train_end:val_end])
+    test = np.sort(permutation[val_end:])
 
     arrays = {
         "x": x,
         "t": t,
         "u": u,
+        "source_case_indices": selected_source_indices,
         "parameters/nu": np.full(n, float(nu), dtype=np.float64),
         "parameters/amplitude": np.full(n, np.nan, dtype=np.float64),
         "parameters/front_location": np.full(n, np.nan, dtype=np.float64),
@@ -130,6 +144,8 @@ def convert_pdebench_burgers_subset(
             "n_cases_used": int(n),
             "time_stride": int(time_stride),
             "space_stride": int(space_stride),
+            "source_case_indices": selected_source_indices.tolist(),
+            "split_seed": int(split_seed),
         },
     }
     return arrays, metadata

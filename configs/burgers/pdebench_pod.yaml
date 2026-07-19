@@ -5,7 +5,7 @@ experiment:
   output_dir: .
 data:
   path: data/processed/burgers/pdebench_burgers_nu0.01_subset.h5
-  case_index: 52
+  case_index: 14
 model:
   method: pod
   rank: 8

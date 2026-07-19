@@ -61,6 +61,14 @@ def fmt(value: Any) -> str:
     return f"{x:.4f}"
 
 
+def wrap_index_list(values: list[int], chunk_size: int = 7) -> str:
+    """Wrap long random-index lists inside narrow report table cells."""
+    return "\n".join(
+        ", ".join(str(value) for value in values[start : start + chunk_size])
+        for start in range(0, len(values), chunk_size)
+    )
+
+
 def available_pdf_path(path: Path) -> Path:
     """Return a writable PDF path, adding a suffix if existing files are locked."""
     candidates = [path]
@@ -354,6 +362,7 @@ def compute_logic_audit() -> dict[str, Any]:
         train_indices = np.asarray(h5["split/train_indices"], dtype=int)
         val_indices = np.asarray(h5["split/val_indices"], dtype=int)
         test_indices = np.asarray(h5["split/test_indices"], dtype=int)
+        source_case_indices = np.asarray(h5["source_case_indices"], dtype=int)
         metadata = json.loads(h5.attrs["metadata_json"])
 
     case_index = int(ae_cfg["data"]["case_index"])
@@ -377,8 +386,7 @@ def compute_logic_audit() -> dict[str, Any]:
             tensor = h5["tensor"]
             original_x = np.asarray(h5["x-coordinate"], dtype=float)
             original_t = np.asarray(h5["t-coordinate"], dtype=float) if "t-coordinate" in h5 else np.arange(tensor.shape[1])
-            case_offset = int(metadata["subset"]["case_offset"])
-            original_case = case_offset + case_index
+            original_case = int(source_case_indices[case_index])
             time_stride = int(metadata["subset"]["time_stride"])
             time_slice = slice(None, None, time_stride)
             for nx_target, stride in [(128, 8), (256, 4), (1024, 1)]:
@@ -455,7 +463,7 @@ def compute_logic_audit() -> dict[str, Any]:
         "case_index_split": "train" if case_index in train_indices else "val" if case_index in val_indices else "test" if case_index in test_indices else "unknown",
         "ae_uses_hdf5_case_train_split_only": False,
         "ae_training_snapshots": f"case {case_index}, time indices 0..{ae_train_end - 1}",
-        "ae_case_52_in_training": bool(case_index == 52),
+        "ae_selected_case_in_temporal_training": True,
         "ae_future_snapshots_in_training": False,
         "latent_dynamics_fit_snapshots": f"latent time indices 0..{ae_train_end - 1}",
         "latent_dynamics_future_snapshots_used_for_fit": False,
@@ -491,6 +499,15 @@ def main() -> None:
     failure_metrics_path = resolve_path("metrics/pdebench_failure_mode_sweep_metrics.csv")
     failure_summary = json.loads(failure_summary_path.read_text(encoding="utf-8")) if failure_summary_path.exists() else {}
     failure_rows = read_csv_rows(str(failure_metrics_path)) if failure_metrics_path.exists() else []
+    aggregate_path = resolve_path("metrics/pdebench_test_aggregate_summary.json")
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8")) if aggregate_path.exists() else {}
+    case_index = int(audit["case_index"])
+    selected_by_regime = {
+        str(row["regime"]): int(row["case_index"])
+        for row in failure_summary.get("selected_cases", [])
+    }
+    smooth_case = selected_by_regime.get("smooth_like", case_index)
+    shock_case = selected_by_regime.get("shock_like", case_index)
     comparison_rows = [
         row
         for row in read_csv_rows("metrics/burgers_model_comparison.csv")
@@ -510,7 +527,7 @@ def main() -> None:
                 "사용한 공개 데이터는 PDEBench의 1D_Burgers_Sols_Nu0.01.hdf5이다. 원본 HDF5에서 동일한 subset을 추출한 뒤, 그 같은 processed HDF5 파일에 POD reconstruction, DMD-based prediction, Conv1D Autoencoder reconstruction 및 latent linear rollout을 적용했다.",
                 "",
                 "핵심 결론은 다음과 같다.",
-                "- 세 방법 모두 같은 public subset과 같은 held-out case_index=52를 사용했다.",
+                f"- 세 방법 모두 같은 public subset과 같은 held-out case_index={case_index}를 사용했다.",
                 "- POD는 시간 예측이 아니라 snapshot projection reconstruction baseline이다.",
                 "- DMD는 linear rollout prediction이므로 시간이 지나면서 prediction error가 증가한다.",
                 "- Conv1D AE는 reconstruction과 latent linear rollout에서 서로 다른 오차 양상을 보였다.",
@@ -552,7 +569,7 @@ def main() -> None:
                     [
                         ("config", "configs/burgers/pdebench_pod.yaml"),
                         ("data path", "data/processed/burgers/pdebench_burgers_nu0.01_subset.h5"),
-                        ("case_index", "52"),
+                        ("case_index", str(case_index)),
                         ("rank", "8"),
                         ("동일 데이터 적용", "yes"),
                     ],
@@ -562,7 +579,7 @@ def main() -> None:
                     [
                         ("config", "configs/burgers/pdebench_dmd.yaml"),
                         ("data path", "data/processed/burgers/pdebench_burgers_nu0.01_subset.h5"),
-                        ("case_index", "52"),
+                        ("case_index", str(case_index)),
                         ("rank", "8"),
                         ("동일 데이터 적용", "yes"),
                     ],
@@ -572,7 +589,7 @@ def main() -> None:
                     [
                         ("config", "configs/burgers/pdebench_autoencoder.yaml"),
                         ("data path", "data/processed/burgers/pdebench_burgers_nu0.01_subset.h5"),
-                        ("case_index", "52"),
+                        ("case_index", str(case_index)),
                         ("latent_dim", "8"),
                         ("동일 데이터 적용", "yes"),
                     ],
@@ -580,8 +597,8 @@ def main() -> None:
             ],
             note=(
                 "세 방법은 같은 processed HDF5와 같은 평가 case를 쓴다. 단, 학습/평가 의미는 다르다. "
-                "POD는 train split 전체로 basis를 만들고 case 52를 projection reconstruction한다. "
-                "DMD와 AE는 case 52 내부 시간 구간에서 rollout 또는 latent dynamics를 평가한다."
+                f"POD는 train split 전체로 basis를 만들고 case {case_index}를 projection reconstruction한다. "
+                f"DMD와 AE는 case {case_index} 내부 시간 구간에서 rollout 또는 latent dynamics를 평가한다."
             ),
         )
 
@@ -590,16 +607,19 @@ def main() -> None:
             "3. PDEBench public subset split",
             ["split", "case indices", "개수"],
             [
-                ["train", f"{data['train'][0]} ... {data['train'][-1]}", str(len(data["train"]))],
-                ["validation", f"{data['val'][0]} ... {data['val'][-1]}", str(len(data["val"]))],
-                ["test", f"{data['test'][0]} ... {data['test'][-1]}", str(len(data["test"]))],
+                ["train", wrap_index_list(data["train"]), str(len(data["train"]))],
+                ["validation", wrap_index_list(data["val"]), str(len(data["val"]))],
+                ["test", wrap_index_list(data["test"]), str(len(data["test"]))],
             ],
-            note="POD/DMD/AE config의 case_index=52는 test split에 포함된 held-out case이다.",
+            note=(
+                "64개 source trajectory는 seed 42로 비복원 무작위 추출했고 local split도 seed 42 permutation으로 만들었다. "
+                f"POD/DMD/AE config의 case_index={case_index}는 test split에 포함된 held-out case이다."
+            ),
         )
 
         add_table_page(
             pdf,
-            "4. 기본 대표 결과표: public-only case 52",
+            f"4. 기본 대표 결과표: public-only case {case_index}",
             ["method", "rank/latent", "reconstruction L2", "rollout L2", "final error", "front MAE"],
             [
                 [
@@ -628,7 +648,7 @@ def main() -> None:
                 ],
             ],
             note=(
-                "이 표는 기본 파이프라인의 대표 결과다. 모두 같은 PDEBench processed dataset과 case 52를 사용하지만, "
+                f"이 표는 기본 파이프라인의 대표 결과다. 모두 같은 PDEBench processed dataset과 case {case_index}를 사용하지만, "
                 "POD의 final error는 final snapshot reconstruction error이고 DMD/AE의 final error는 rollout final error이다. "
                 "따라서 아래 controlled comparison 표와 분리해서 읽어야 한다."
             ),
@@ -646,6 +666,33 @@ def main() -> None:
                 "따라서 같은 공개 데이터셋에서 비교할 때, POD는 linear reconstruction baseline, DMD는 linear rollout baseline, Conv1D AE는 nonlinear reconstruction과 latent rollout 관찰 대상으로 구분해서 읽는다.",
             ],
         )
+
+        if aggregate:
+            methods = aggregate.get("methods", {})
+            aggregate_records = []
+            for method, values in methods.items():
+                aggregate_records.append(
+                    (
+                        method,
+                        [
+                            ("rollout mean +/- std", f"{values['rollout_mean']:.4f} +/- {values['rollout_std']:.4f}"),
+                            ("final mean +/- std", f"{values['final_mean']:.4f} +/- {values['final_std']:.4f}"),
+                            ("front MAE median [IQR]", f"{values['front_median']:.4f} [{values['front_q1']:.4f}, {values['front_q3']:.4f}]"),
+                            ("smooth rollout mean", fmt(values["smooth_rollout_mean"])),
+                            ("shock rollout mean", fmt(values["shock_rollout_mean"])),
+                            ("diverged cases", f"{values['diverged_case_count']} / 13"),
+                        ],
+                    )
+                )
+            add_record_pages(
+                pdf,
+                "5A. 13개 test trajectory 전체 temporal extrapolation",
+                aggregate_records,
+                note=(
+                    f"범위: {aggregate['scope']}. 발산 정의: {aggregate['divergence_definition']}. "
+                    "대표 extreme case 하나의 결과를 전체 성능으로 일반화하지 않기 위해 모든 test trajectory를 집계했다."
+                ),
+            )
 
         if comparison_rows:
             add_record_pages(
@@ -683,7 +730,7 @@ def main() -> None:
                     [
                         ("코드 경로", "scripts/train_pod.py, src/rom_bench/models/pod.py"),
                         ("설정 경로", "configs/burgers/pdebench_pod.yaml"),
-                        ("로직 판단", "train split snapshot으로 SVD basis를 만들고 held-out case 52를 rank 8 basis에 projection한다. 구현 방향은 POD reconstruction 목적에 맞다."),
+                        ("로직 판단", f"train split snapshot으로 SVD basis를 만들고 held-out case {case_index}를 rank 8 basis에 projection한다. 구현 방향은 POD reconstruction 목적에 맞다."),
                         ("중요한 해석", "POD 결과는 시간 예측이 아니라 true snapshot을 알고 있을 때의 projection reconstruction이다. 따라서 rollout error가 아니라 reconstruction baseline으로 해석해야 한다."),
                     ],
                 ),
@@ -692,7 +739,7 @@ def main() -> None:
                     [
                         ("코드 경로", "scripts/train_dmd.py, src/rom_bench/models/dmd.py"),
                         ("설정 경로", "configs/burgers/pdebench_dmd.yaml"),
-                        ("로직 판단", "case 52의 앞쪽 시간 구간으로 rank 8 exact DMD를 학습한 뒤 이후 시간을 free rollout한다. DMD prediction 실험 목적에 맞다."),
+                        ("로직 판단", f"case {case_index}의 앞쪽 시간 구간으로 rank 8 exact DMD를 학습한 뒤 이후 시간을 free rollout한다. DMD prediction 실험 목적에 맞다."),
                         ("중요한 해석", "Burgers 방정식은 nonlinear이지만 DMD는 하나의 linear time-advance operator로 근사한다. 그래서 학습 구간 재구성과 장시간 rollout에서 서로 다른 오차 양상이 나타날 수 있다."),
                     ],
                 ),
@@ -726,10 +773,10 @@ def main() -> None:
             "8. 상세 코드 로직: 데이터 흐름과 평가 대상",
             [
                 "전체 파이프라인의 출발점은 processed HDF5 파일이다. 이 파일에는 x, t, u, split/train_indices, split/val_indices, split/test_indices가 들어 있다. 여기서 u의 shape은 [case 개수, 시간 snapshot 개수, 공간 격자점 개수] = [64, 101, 128]이다.",
-                "즉 한 개의 Burgers 해는 u_case = u[case_index] 형태로 꺼내며, 이번 리뷰에서 세 방법은 모두 case_index=52를 사용한다. u_case의 shape은 [101, 128]이므로, 시간 101개와 공간 격자점 128개를 가진 하나의 space-time field라고 보면 된다.",
-                "POD는 train split에 있는 여러 case의 snapshot을 모아서 basis를 만든다. 그 다음 test split에 포함된 case 52를 그 basis 위에 projection한다. 따라서 POD는 '처음 보는 test case를 train basis가 얼마나 잘 복원하는가'를 보는 구조다.",
-                "DMD는 case 52의 앞쪽 시간 구간을 학습 구간으로 사용한다. 앞쪽 snapshot pair로 선형 시간 전진 operator를 추정하고, 이후 시간은 true 값을 넣지 않고 free rollout한다. 따라서 DMD의 핵심 평가는 '시간이 지날수록 예측 오차가 어떻게 누적되는가'이다.",
-                "Autoencoder는 case 52의 snapshot을 Conv1D encoder-decoder로 압축하고 복원한다. encoder는 u(x)를 latent vector z로 바꾸고, decoder는 z에서 다시 u(x)를 만든다. 추가 rollout은 latent z에 대해 linear dynamics를 맞춰서 수행한다.",
+                f"즉 한 개의 Burgers 해는 u_case = u[case_index] 형태로 꺼내며, 이번 리뷰에서 세 방법은 모두 case_index={case_index}를 사용한다. u_case의 shape은 [101, 128]이므로, 시간 101개와 공간 격자점 128개를 가진 하나의 space-time field라고 보면 된다.",
+                f"POD는 train split에 있는 여러 case의 snapshot을 모아서 basis를 만든다. 그 다음 test split에 포함된 case {case_index}를 그 basis 위에 projection한다. 따라서 POD는 '처음 보는 test case를 train basis가 얼마나 잘 복원하는가'를 보는 구조다.",
+                f"DMD는 case {case_index}의 앞쪽 시간 구간을 학습 구간으로 사용한다. 앞쪽 snapshot pair로 선형 시간 전진 operator를 추정하고, 이후 시간은 true 값을 넣지 않고 free rollout한다. 따라서 DMD의 핵심 평가는 '시간이 지날수록 예측 오차가 어떻게 누적되는가'이다.",
+                f"Autoencoder는 case {case_index}의 snapshot을 Conv1D encoder-decoder로 압축하고 복원한다. encoder는 u(x)를 latent vector z로 바꾸고, decoder는 z에서 다시 u(x)를 만든다. 추가 rollout은 latent z에 대해 linear dynamics를 맞춰서 수행한다.",
                 "평가 지표는 세 방법이 같은 true field와 비교되도록 저장된다. relative L2 error는 ||prediction - truth|| / (||truth|| + epsilon)으로 계산된다. front 위치 오차는 공간 기울기 |du/dx|가 큰 위치를 front로 보고, true front와 predicted front의 차이를 계산한다.",
                 "따라서 코드 로직 자체는 같은 공개 데이터, 같은 case, 같은 rank 또는 latent_dim=8을 기준으로 비교하도록 정리되어 있다. 다만 POD reconstruction, DMD rollout, AE latent rollout은 문제의 성격이 다르므로 결과 해석에서 반드시 구분해야 한다.",
             ],
@@ -803,13 +850,13 @@ def main() -> None:
                     ],
                 ),
                 (
-                    "AE 학습 데이터와 case 52 포함 여부",
+                    f"AE 학습 데이터와 case {case_index} 포함 여부",
                     [
-                        ("case 52 split", str(audit["case_index_split"])),
+                        (f"case {case_index} split", str(audit["case_index_split"])),
                         ("HDF5 train split만 사용?", str(audit["ae_uses_hdf5_case_train_split_only"])),
                         ("AE training snapshots", str(audit["ae_training_snapshots"])),
-                        ("case 52 snapshot 포함?", "yes, time indices 0..59 are used for AE training"),
-                        ("판단", "AE는 HDF5의 train case split만으로 학습된 것이 아니라, 평가 case 52의 앞 60개 시간 snapshot으로 학습되었다. 따라서 AE 결과는 temporal extrapolation 실험이지 case-generalization 실험은 아니다."),
+                        (f"case {case_index} snapshot 포함?", "yes, time indices 0..59 are used for AE training"),
+                        ("판단", f"AE는 HDF5의 train case split만으로 학습된 것이 아니라, 평가 case {case_index}의 앞 60개 시간 snapshot으로 학습되었다. 따라서 AE 결과는 temporal extrapolation 실험이지 case-generalization 실험은 아니다."),
                     ],
                 ),
                 (
@@ -820,7 +867,7 @@ def main() -> None:
                         ("DMD training snapshots", str(audit["dmd_train_snapshots"])),
                         ("DMD와 AE temporal split 동일?", str(audit["dmd_ae_temporal_split_identical"])),
                         ("latent operator spectral radius", fmt(audit["latent_linear_operator_spectral_radius"])),
-                        ("판단", "미래 test snapshot은 latent linear operator fitting에는 쓰이지 않았다. 다만 AE encoder-decoder 자체는 case 52의 앞쪽 시간구간을 보고 학습했다."),
+                        ("판단", f"미래 test snapshot은 latent linear operator fitting에는 쓰이지 않았다. 다만 AE encoder-decoder 자체는 case {case_index}의 앞쪽 시간구간을 보고 학습했다."),
                     ],
                 ),
                 (
@@ -828,11 +875,11 @@ def main() -> None:
                     [
                         ("front method", str(audit["front_detector_method"])),
                         ("dx at nx=128", fmt(audit["front_detector_dx_128"])),
-                        ("max front jump", fmt(audit["front_detector_max_jump"])),
+                        ("max detector-position jump", fmt(audit["front_detector_max_jump"])),
                         ("large jump threshold", fmt(audit["front_detector_large_jump_threshold"])),
                         ("large jump count", str(audit["front_detector_large_jump_count"])),
                         ("same front likely?", str(audit["front_detector_tracks_same_front_likely"])),
-                        ("판단", "max-gradient detector는 가장 큰 |du/dx| 위치를 고르므로, 여러 sharp region이 경쟁하면 다른 front를 잡을 수 있다. jump count가 0이면 이번 case에서는 같은 front를 계속 추적했을 가능성이 높다."),
+                        ("판단", "max-gradient detector는 각 시점의 가장 큰 |du/dx| 위치를 독립적으로 고른다. 여러 sharp region이 경쟁하거나 주기 경계를 넘으면 다른 위치로 전환될 수 있다. 따라서 이 jump는 물리적 front 속도나 해상도 오차가 아니다."),
                     ],
                 ),
             ],
@@ -842,7 +889,7 @@ def main() -> None:
             add_table_page(
                 pdf,
                 "14. 공간해상도 128 / 256 / 1024 front gradient 비교",
-                ["nx", "stride", "mean max |du/dx|", "ratio vs 1024", "max front jump", "jump count"],
+                ["nx", "stride", "mean max |du/dx|", "ratio vs 1024", "max detector jump", "jump count"],
                 [
                     [
                         str(row["resolution"]),
@@ -855,8 +902,9 @@ def main() -> None:
                     for row in audit["resolution_rows"]
                 ],
                 note=(
-                    "원본 PDEBench case 52를 같은 시간 stride로 읽고, 공간 stride만 8, 4, 1로 바꿔 nx=128, 256, 1024를 비교했다. "
-                    "ratio vs 1024가 1보다 작으면 downsampling 때문에 sharp front gradient가 약해졌다는 뜻이다."
+                    f"원본 PDEBench source trajectory {data['subset']['source_case_indices'][case_index]}를 같은 시간 stride로 읽고, 공간 stride만 8, 4, 1로 바꿔 nx=128, 256, 1024를 비교했다. "
+                    "ratio vs 1024가 1보다 작으면 downsampling 때문에 sharp front gradient가 약해졌다는 뜻이다. "
+                    "마지막 두 열은 maximum-gradient 검출기의 위치 전환 진단이며 물리적 front 이동량으로 해석하지 않는다."
                 ),
             )
             add_image_page(
@@ -893,7 +941,7 @@ def main() -> None:
                     for case in selected_cases
                 ],
                 note=(
-                    "선택 기준은 test split 내부의 mean max |du/dx|이다. 값이 작은 case 53은 smooth-like, 값이 큰 case 52는 shock-like로 표시했다. "
+                    f"선택 기준은 test split 내부의 mean max |du/dx|이다. 값이 작은 case {smooth_case}는 smooth-like, 값이 큰 case {shock_case}는 shock-like로 표시했다. "
                     "이 구분은 물리 regime label이 아니라, 현재 subset에서 gradient 강도 차이를 보기 위한 operational label이다."
                 ),
             )
@@ -926,8 +974,8 @@ def main() -> None:
                 pdf,
                 "18. smooth/shock 및 dimension sweep에서 보이는 오차 양상",
                 [
-                    "smooth-like case 53에서는 true field 자체의 gradient가 약하고 시간 변화도 완만하다. 그래서 front 주변 국부 오차 그림에서도 sharp shock failure보다는 작은 amplitude 차이나 완만한 profile 차이가 주로 보인다.",
-                    "shock-like case 52에서는 mean max |du/dx|가 훨씬 크고, front 주변 국부 오차가 해석의 중심이 된다. 전체 L2 error만 보면 front가 어디서 어떻게 흐려졌는지 알기 어렵기 때문에, front overlay와 local absolute error를 함께 보도록 했다.",
+                    f"smooth-like case {smooth_case}에서는 true field 자체의 gradient가 약하고 시간 변화도 완만하다. 그래서 front 주변 국부 오차 그림에서도 sharp shock failure보다는 작은 amplitude 차이나 완만한 profile 차이가 주로 보인다.",
+                    f"shock-like case {shock_case}에서는 mean max |du/dx|가 훨씬 크고, front 주변 국부 오차가 해석의 중심이 된다. 전체 L2 error만 보면 front가 어디서 어떻게 흐려졌는지 알기 어렵기 때문에, front overlay와 local absolute error를 함께 보도록 했다.",
                     "rank sweep과 latent-dimension sweep은 차원을 늘렸을 때 숫자가 어떻게 변하는지뿐 아니라, shock-like case에서 front-window error와 gradient error가 어떻게 남는지 보기 위한 것이다.",
                     "동일 학습 조건 비교에서는 POD와 AE 모두 같은 case-specific temporal training snapshots만 사용한다. 따라서 기존 기본 파이프라인의 POD/AE 비교보다 reconstruction 조건이 더 직접적으로 맞춰져 있다.",
                     "이 결과는 방법의 우열 판단이 아니라, smooth-like field와 shock-like field에서 오차가 나타나는 위치와 형태를 비교하기 위한 자료다.",
@@ -937,7 +985,7 @@ def main() -> None:
                 pdf,
                 "smooth-like / shock-like case 선택 기준",
                 "figures/failure_modes/pdebench_smooth_shock_failure_modes/case_sharpness_selection.png",
-                "test split case들의 mean max |du/dx|를 표시하고, smooth/shock 비교에 사용한 smooth-like case 53과 shock-like case 52를 강조했다.",
+                f"test split case들의 mean max |du/dx|를 표시하고, smooth/shock 비교에 사용한 smooth-like case {smooth_case}와 shock-like case {shock_case}를 강조했다.",
             )
             add_image_page(
                 pdf,
@@ -948,13 +996,13 @@ def main() -> None:
             add_image_page(
                 pdf,
                 "smooth-like case front 주변 overlay",
-                "figures/failure_modes/pdebench_smooth_shock_failure_modes/front_overlay_smooth_like_case53.png",
+                f"figures/failure_modes/pdebench_smooth_shock_failure_modes/front_overlay_smooth_like_case{smooth_case}.png",
                 "smooth-like case에서 truth, POD rank 8, DMD rank 8, AE latent 8 결과를 front 주변에서 겹쳐 그렸다.",
             )
             add_image_page(
                 pdf,
                 "shock-like case front 주변 overlay",
-                "figures/failure_modes/pdebench_smooth_shock_failure_modes/front_overlay_shock_like_case52.png",
+                f"figures/failure_modes/pdebench_smooth_shock_failure_modes/front_overlay_shock_like_case{shock_case}.png",
                 "shock-like case에서 truth, POD rank 8, DMD rank 8, AE latent 8 결과를 front 주변에서 겹쳐 그렸다. local absolute error도 함께 표시했다.",
             )
             add_image_page(
@@ -974,9 +1022,9 @@ def main() -> None:
             pdf,
             "19. 판단 결과가 왜 그렇게 나왔는가: POD",
             [
-                f"POD rank 8의 reconstruction relative L2는 {pod['reconstruction_relative_l2']:.6e}이다. 이 값은 train split 전체에서 얻은 8개의 선형 basis가 held-out case 52의 전체 시간장을 어느 정도 표현했는지를 보여준다.",
+                f"POD rank 8의 reconstruction relative L2는 {pod['reconstruction_relative_l2']:.6e}이다. 이 값은 train split 전체에서 얻은 8개의 선형 basis가 held-out case {case_index}의 전체 시간장을 어느 정도 표현했는지를 보여준다.",
                 "Burgers 해가 단순한 진폭 변화만 한다면 적은 POD mode로도 잘 표현된다. 하지만 front 또는 sharp gradient가 위치를 바꾸면, 같은 모양이 조금 이동한 것만으로도 선형 basis 입장에서는 여러 mode가 필요하다. 그래서 rank 8에서는 front 주변 오차와 gradient 오차가 남는다.",
-                f"front_position_mae는 {pod['front_position_mae']:.6e}, max_gradient_error는 {pod['max_gradient_error']:.6e}이다. 이는 front 위치 오차와 gradient sharpness 오차가 서로 다른 정보를 준다는 뜻이다.",
+                f"front_position_mae는 {pod['front_position_mae']:.6e}, spatial-gradient relative L2는 {pod['spatial_gradient_relative_l2']:.6e}이다. 이는 front 위치 오차와 gradient sharpness 오차가 서로 다른 정보를 준다는 뜻이다.",
                 "또 하나 중요한 점은 POD의 final error가 rollout 실패를 의미하지 않는다는 것이다. 현재 POD는 매 시점 true snapshot을 basis에 projection하므로 시간 적분 오차가 쌓이지 않는다. 그래서 POD 결과는 '동일 rank에서 선형 공간이 데이터를 얼마나 담는가'를 보는 결과다.",
                 "따라서 이 결과는 'POD 로직은 reconstruction 목적에 맞고, rank 8 선형 subspace에서 moving front 구조가 어떤 오차 양상으로 나타나는지 관찰할 수 있다'로 해석한다.",
             ],
@@ -986,7 +1034,7 @@ def main() -> None:
             pdf,
             "20. 판단 결과가 왜 그렇게 나왔는가: DMD",
             [
-                f"DMD reconstruction relative L2는 {dmd['reconstruction_relative_l2']:.6e}이다. 이것은 DMD가 case 52의 시간 데이터 자체에서 modal dynamics를 맞추기 때문에 학습 구간의 시간 패턴을 어떻게 재구성했는지 보여준다.",
+                f"DMD reconstruction relative L2는 {dmd['reconstruction_relative_l2']:.6e}이다. 이것은 DMD가 case {case_index}의 시간 데이터 자체에서 modal dynamics를 맞추기 때문에 학습 구간의 시간 패턴을 어떻게 재구성했는지 보여준다.",
                 f"하지만 rollout relative L2는 {dmd['rollout_relative_l2']:.6e}, final rollout error는 {dmd['final_rollout_error']:.6e}로 커진다. Burgers 방정식의 실제 시간 발전에는 u du/dx라는 nonlinear 항이 있는데, DMD는 이를 고정된 linear operator 하나로 근사한다.",
                 "짧은 시간에는 선형 근사가 그럴듯하게 보일 수 있다. 그러나 시간이 길어지면 front 위치, amplitude, phase, diffusion에 의한 smoothing 차이가 조금씩 쌓인다. 이 누적 오차가 rollout error 증가로 나타난다.",
                 f"threshold crossing time은 {dmd['threshold_crossing_time']:.4f} 근처로 기록되었다. 이 시점 이후에는 field 전체의 shape 차이나 phase 차이가 평가 threshold를 넘어섰다고 볼 수 있다.",
@@ -1025,9 +1073,9 @@ def main() -> None:
             "figures/pod/pdebench_burgers_pod_rank8",
             [
                 ("pod_energy_spectrum.png", "POD singular value spectrum과 cumulative energy. Rank 선택과 에너지 집중 정도를 확인한다."),
-                ("pod_final_reconstruction.png", "Held-out case 52의 마지막 snapshot에서 truth와 POD reconstruction을 비교한다."),
+                ("pod_final_reconstruction.png", f"Held-out case {case_index}의 마지막 snapshot에서 truth와 POD reconstruction을 비교한다."),
                 ("rollout_error_vs_time.png", "POD projection reconstruction의 시간별 relative L2 error. POD는 rollout이 아니라 snapshot별 projection이다."),
-                ("burgers_spacetime_true.png", "PDEBench held-out case 52의 true space-time field."),
+                ("burgers_spacetime_true.png", f"PDEBench held-out case {case_index}의 true space-time field."),
                 ("burgers_spacetime_reconstruction.png", "POD rank 8 reconstruction의 space-time field."),
                 ("burgers_spacetime_error.png", "POD rank 8 reconstruction absolute error contour."),
             ],

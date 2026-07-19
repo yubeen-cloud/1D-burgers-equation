@@ -19,6 +19,7 @@ from rom_bench.evaluation.field_metrics import error_over_time, relative_l2, spa
 from rom_bench.evaluation.front_tracking import front_position_error, front_positions
 from rom_bench.models.autoencoder_1d import Conv1dAutoencoder
 from rom_bench.models.dmd import DMDModel
+from rom_bench.models.latent_dynamics import LatentLinearDynamics
 from rom_bench.models.pod import PODModel
 from rom_bench.paths import ensure_dir, resolve_path
 from rom_bench.seed import seed_everything
@@ -66,7 +67,7 @@ def train_conv1d_ae(
     patience: int = 25,
     hidden_channels: int = 16,
     seed: int = SEED,
-) -> tuple[np.ndarray, np.ndarray, float]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     """Train a small Conv1D AE on train_snapshots and reconstruct all_snapshots."""
     seed_everything(seed + latent_dim)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -111,7 +112,11 @@ def train_conv1d_ae(
         tensor = torch.from_numpy(all_x).to(device)
         reconstruction_norm = model(tensor).cpu().numpy()
         latent = model.encode(tensor).cpu().numpy()
-    return reconstruction_norm * scale + mean, latent, best_loss
+        latent_rollout = LatentLinearDynamics().fit(latent[: len(train_snapshots)]).rollout(
+            latent[0], len(all_snapshots)
+        )
+        rollout_norm = model.decode(torch.from_numpy(latent_rollout.astype(np.float32)).to(device)).cpu().numpy()
+    return reconstruction_norm * scale + mean, rollout_norm * scale + mean, latent, best_loss
 
 
 def local_front_error(
@@ -146,7 +151,7 @@ def metric_row(
     err = error_over_time(truth, pred)
     front_err = front_position_error(x, truth, pred, method="max_gradient")
     true_front = front_positions(x, truth, method="max_gradient")
-    front_time = int(np.argmax(max_gradient_series(x, truth)))
+    front_time = train_end + int(np.argmax(max_gradient_series(x, truth[train_end:])))
     return {
         "regime": regime,
         "case_index": case_index,
@@ -157,10 +162,14 @@ def metric_row(
         "test_relative_l2": float(np.mean(err[train_end:])),
         "all_relative_l2": relative_l2(truth, pred),
         "final_relative_l2": float(err[-1]),
-        "front_position_mae": float(np.mean(front_err)),
-        "front_position_mae_report": "N/A" if regime == "smooth_like" else float(np.mean(front_err)),
+        "front_position_mae": float(np.mean(front_err[train_end:])),
+        "front_position_mae_report": (
+            "N/A" if regime == "smooth_like" else float(np.mean(front_err[train_end:]))
+        ),
         "front_window_relative_l2": local_front_error(x, truth[front_time], pred[front_time], true_front[front_time]),
-        "spatial_gradient_error": spatial_gradient_error(truth, pred, x),
+        "front_window_half_width": 0.08,
+        "spatial_gradient_error": spatial_gradient_error(truth[train_end:], pred[train_end:], x),
+        "metric_time_scope": f"post-split indices {train_end}:{len(t) - 1}",
         "time_of_max_gradient": float(t[front_time]),
         "training_time": training_time,
     }
@@ -208,7 +217,7 @@ def save_front_overlay(
     fig_dir: Path,
 ) -> None:
     """Save local front overlay and local absolute-error plot."""
-    front_time = int(np.argmax(max_gradient_series(x, truth)))
+    front_time = TRAIN_END + int(np.argmax(max_gradient_series(x, truth[TRAIN_END:])))
     true_front = front_positions(x, truth, method="max_gradient")[front_time]
     width = 0.10
     mask = np.abs(x - true_front) <= width
@@ -273,6 +282,94 @@ def save_same_training_bar(rows: list[dict[str, Any]], fig_dir: Path) -> None:
     fig.savefig(fig_dir / "same_training_reconstruction_comparison.png", dpi=300)
     fig.savefig(fig_dir / "same_training_reconstruction_comparison.pdf")
     plt.close(fig)
+
+
+def evaluate_all_test_cases(
+    x: np.ndarray,
+    t: np.ndarray,
+    u: np.ndarray,
+    test_indices: np.ndarray,
+    sharpness_rows: list[dict[str, Any]],
+    source_case_indices: np.ndarray,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Evaluate case-specific rank-8 DMD and latent-8 AE rollout on every test case."""
+    sharpness = {int(row["case_index"]): float(row["mean_max_gradient"]) for row in sharpness_rows}
+    threshold = float(np.median(list(sharpness.values())))
+    rows: list[dict[str, Any]] = []
+    dt = float(np.mean(np.diff(t)))
+    for case_index in test_indices.astype(int):
+        truth = u[case_index]
+        train = truth[:TRAIN_END]
+        dmd = DMDModel.fit(train, dt=dt, rank=8, filter_unstable=False)
+        predictions: dict[str, np.ndarray] = {"DMD": dmd.predict(len(t))}
+        _ae_reconstruction, ae_rollout, _latent, _loss = train_conv1d_ae(
+            train, truth, latent_dim=8
+        )
+        predictions["AE latent rollout"] = ae_rollout
+        regime = "shock_like" if sharpness[case_index] >= threshold else "smooth_like"
+        for method, prediction in predictions.items():
+            errors = error_over_time(truth, prediction)
+            front_errors = front_position_error(
+                x, truth, prediction, method="max_gradient"
+            )[TRAIN_END:]
+            future_errors = errors[TRAIN_END:]
+            rows.append(
+                {
+                    "case_index": int(case_index),
+                    "source_case_index": int(source_case_indices[case_index]),
+                    "regime": regime,
+                    "method": method,
+                    "future_rollout_relative_l2_mean": float(np.mean(future_errors)),
+                    "final_time_relative_l2": float(errors[-1]),
+                    "future_front_position_mae": float(np.mean(front_errors)),
+                    "diverged": bool(
+                        np.any(~np.isfinite(prediction)) or np.max(future_errors) > 10.0
+                    ),
+                }
+            )
+
+    summary: dict[str, Any] = {
+        "scope": "All 13 test trajectories; case-specific temporal fit on indices 0:59 and autonomous evaluation on 60:100",
+        "regime_threshold_median_mean_max_gradient": threshold,
+        "divergence_definition": "Any non-finite prediction or per-snapshot future relative L2 greater than 10",
+        "methods": {},
+    }
+    for method in ["DMD", "AE latent rollout"]:
+        method_rows = [row for row in rows if row["method"] == method]
+        rollout = np.asarray(
+            [row["future_rollout_relative_l2_mean"] for row in method_rows], dtype=float
+        )
+        final = np.asarray([row["final_time_relative_l2"] for row in method_rows], dtype=float)
+        front = np.asarray([row["future_front_position_mae"] for row in method_rows], dtype=float)
+        summary["methods"][method] = {
+            "rollout_mean": float(np.mean(rollout)),
+            "rollout_std": float(np.std(rollout, ddof=1)),
+            "final_mean": float(np.mean(final)),
+            "final_std": float(np.std(final, ddof=1)),
+            "front_median": float(np.median(front)),
+            "front_q1": float(np.quantile(front, 0.25)),
+            "front_q3": float(np.quantile(front, 0.75)),
+            "diverged_case_count": int(sum(bool(row["diverged"]) for row in method_rows)),
+            "smooth_rollout_mean": float(
+                np.mean(
+                    [
+                        row["future_rollout_relative_l2_mean"]
+                        for row in method_rows
+                        if row["regime"] == "smooth_like"
+                    ]
+                )
+            ),
+            "shock_rollout_mean": float(
+                np.mean(
+                    [
+                        row["future_rollout_relative_l2_mean"]
+                        for row in method_rows
+                        if row["regime"] == "shock_like"
+                    ]
+                )
+            ),
+        }
+    return rows, summary
 
 
 def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -373,7 +470,7 @@ def main() -> None:
 
         for latent_dim in LATENT_DIMS:
             start = time.perf_counter()
-            ae_pred, latent, best_loss = train_conv1d_ae(train, truth, latent_dim)
+            ae_pred, ae_rollout, latent, best_loss = train_conv1d_ae(train, truth, latent_dim)
             elapsed = time.perf_counter() - start
             row = metric_row(
                 regime=regime,
@@ -396,6 +493,7 @@ def main() -> None:
                 t=t,
                 truth=truth,
                 reconstruction=ae_pred,
+                rollout=ae_rollout,
                 latent=latent,
             )
             if latent_dim == 8:
@@ -403,8 +501,14 @@ def main() -> None:
 
         save_front_overlay(x, t, truth, overlay_predictions[regime], item, fig_dir)
 
+    aggregate_rows, aggregate_summary = evaluate_all_test_cases(
+        x, t, u, test_indices, all_case_rows, arrays["source_case_indices"]
+    )
+
     write_csv(metric_dir / "pdebench_failure_mode_sweep_metrics.csv", metric_rows)
     write_csv(metric_dir / "pdebench_failure_mode_case_selection.csv", all_case_rows)
+    write_csv(metric_dir / "pdebench_test_aggregate_metrics.csv", aggregate_rows)
+    write_json(metric_dir / "pdebench_test_aggregate_summary.json", aggregate_summary)
     write_json(
         metric_dir / "pdebench_failure_mode_summary.json",
         {
@@ -415,6 +519,7 @@ def main() -> None:
             "ranks": RANKS,
             "latent_dims": LATENT_DIMS,
             "selected_cases": selected_cases,
+            "all_test_case_aggregate": aggregate_summary,
             "interpretation_scope": "Smooth/shock and dimension-sweep comparison on the same PDEBench dataset; no method ranking is intended.",
         },
     )
